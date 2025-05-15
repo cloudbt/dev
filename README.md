@@ -9,6 +9,27 @@ $Env:PSModulePath += ";C:\Downloads\AWS.Tools.4.1.696"
 ```
 
 ```
+# GetS3Buckets.ps1
+param (
+    [string]$AccessKey,
+    [string]$SecretKey,
+    [string]$Region = "ap-northeast-1" 
+)
+
+$env:AWS_ACCESS_KEY_ID = $AccessKey
+$env:AWS_SECRET_ACCESS_KEY = $SecretKey
+$env:AWS_DEFAULT_REGION = $Region
+#Copy-S3Object -BucketName "smo-tky30-deployment-material-raicw-s3" -KeyPrefix "/" -LocalFolder "C:\Users\koshi.ou\Downloads\test-s3" -Force
+Write-S3Object -BucketName "smo-tky30-deployment-material-raicw-s3" -Folder "C:\Users\koshi.ou\Downloads\test-s3" -KeyPrefix "ou-test/" -Recurse
+
+#Write-S3Object -BucketName "your-bucket" -Folder "C:\LocalFolder" -KeyPrefix "remote/path/" -Recurse
+
+Remove-Item Env:\AWS_ACCESS_KEY_ID
+Remove-Item Env:\AWS_SECRET_ACCESS_KEY
+Remove-Item Env:\AWS_DEFAULT_REGION
+```
+
+```
 function CallAwsCommand {
     <#
         .SYNOPSIS
