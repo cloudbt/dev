@@ -18,7 +18,19 @@ Map images custom-type-data-source
 updates
  - https://www.servicenow.com/community/itsm-forum/i-want-to-get-the-row-count-on-inserted-created-updated-total/m-p/533191#M104970#:~:text=griii4.getValue%28,field%20names
  - https://www.servicenow.com/community/architect-forum/insertmultiple-import-set-api/m-p/2442022#:~:text=The%20import%20now%20completes%20,values%20appear%20in%20either%20staging
- - 
+
+
+```
+updatesの数が多い理由を確認しました。
+おそらく、updatesの単位は「フィールド」ではなく「レコード」だと思われます。
+
+また、データインポート時にはターゲットテーブルだけでなく、ステージングテーブルにも更新が発生しているようです。
+さらに、複数のテーブルや子テーブルが同時に更新されるケースが多いと考えられます。
+
+たとえば、ステージングテーブルの1件のレコードが「CI（構成アイテム）情報」「ハードウェア一覧」「ソフトウェア一覧」の3つのテーブルにマッピングされている場合、1レコードにつき最低でも3件の更新が発生します。
+
+実際には、ソフトウェアの数が多い場合など、1レコードに対して数十件から数百件の子レコードの更新が発生することもあります。
+```
 
 このスクリプトは、インポートが実行される直前に評価され、trueを返した場合にのみインポートが実行されます。falseを返した場合は、その回のインポートはスキップされます。
 https://www.servicenow.com/community/developer-forum/conditional-scheduled-imports/td-p/1527884?utm_source=chatgpt.com
