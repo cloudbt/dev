@@ -11,35 +11,15 @@ Map images custom-type-data-source
 - https://www.servicenow.com/docs/ja-JP/bundle/yokohama-integrate-applications/page/administer/import-sets/reference/custom-type-data-source.html
 
 
+updates
+ - https://www.servicenow.com/community/itsm-forum/i-want-to-get-the-row-count-on-inserted-created-updated-total/m-p/533191#M104970#:~:text=griii4.getValue%28,field%20names
+ - https://www.servicenow.com/community/architect-forum/insertmultiple-import-set-api/m-p/2442022#:~:text=The%20import%20now%20completes%20,values%20appear%20in%20either%20staging
+ - 
+
 ```
+ServiceNow user created in Designated Member Account, both managed and member accounts have different STS Role Names.
+For the STS Role value in STS Assume Role Name (Include only name and not ARN), which account STS Role Name should be set?
 
-var scriptName = "SG Tanium - Before Script"; // ログ用のスクリプト名
-
-
-var filterPeriodSeconds = 3600; // 例: 3600秒 (1時間)。この値を変更することで期間を調整できます。
-
-var currentGDT = new GlideDateTime(); // 現在のUTC日時を取得
-var currentMillis = currentGDT.getNumericValue(); // 現在時刻のミリ秒値 (UTC)
-var thresholdMillis2 = currentMillis - (filterPeriodSeconds * 1000); // 指定秒数前の時刻のミリ秒値
-currentGDT.addSeconds(-filterPeriodSeconds);
-var thresholdMillis = currentGDT.getNumericValue();
-
-var lastSeenAtStr = "2025-06-02 05:00:15";
-gs.info(scriptName + ": last_seen_at_string '" + lastSeenAtStr);
-
-var lastSeenAtGDT = new GlideDateTime();
-// === 修正箇所: setValueUTC を使用して日時とフォーマットを明示的に指定 ===
-// last_seen_at のフォーマット 'YYYY-MM-DD HH:mm:ss' がUTCであると仮定
-var format = "yyyy-MM-dd HH:mm:ss"; // GlideDateTimeで使用するフォーマット文字列
-lastSeenAtGDT.setValueUTC(lastSeenAtStr, format);
-
-var lastSeenAtMillis = lastSeenAtGDT.getNumericValue(); // last_seen_at のミリ秒値 (UTC)
-gs.info(scriptName + ": lastSeenAtMillis '" + lastSeenAtMillis+ ": thresholdMillis '" + thresholdMillis+ ": thresholdMillis2 '" + thresholdMillis2 );
-gs.info(scriptName + ": lastSeenAt '" + lastSeenAtGDT.getValue()+ ": current-days '" + currentGDT.getValue() );
-
-
-if (lastSeenAtMillis < thresholdMillis) {
-	gs.info(scriptName + ": lastSeenAtMillis< '" + lastSeenAtMillis+ ": thresholdMillis '" + thresholdMillis );
-}
-
+指定メンバーアカウントで作成されたServiceNowユーザーは、管理アカウントとメンバーアカウントの両方で異なるSTS役割名を持っています。
+STS Assume Role Name（ARNではなく名前のみを含む）のSTS Role値には、どのアカウントのSTS Role Nameを設定する必要がありますか？
 ```
