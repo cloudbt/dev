@@ -1,3 +1,7 @@
+
+■import-transform-learning-path
+https://www.servicenow.com/community/servicenow-ai-platform-articles/import-transform-learning-path/ta-p/2306952#ISST
+
 https://www.servicenow.com/community/developer-forum/bd-p/developer-forum
 
 Script Include →SGTaniumDataSourceUtil
