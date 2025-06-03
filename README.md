@@ -16,6 +16,23 @@ updates
  - https://www.servicenow.com/community/architect-forum/insertmultiple-import-set-api/m-p/2442022#:~:text=The%20import%20now%20completes%20,values%20appear%20in%20either%20staging
  - 
 
+このスクリプトは、インポートが実行される直前に評価され、trueを返した場合にのみインポートが実行されます。falseを返した場合は、その回のインポートはスキップされます。
+https://www.servicenow.com/community/developer-forum/conditional-scheduled-imports/td-p/1527884?utm_source=chatgpt.com
+```
+//Return 'true' to run the job
+var answer = false;
+
+//Get the day of month. 
+var now = new GlideDateTime();
+
+//Run only on 2nd of month
+if(now.getDayOfMonthLocalTime() == 2){
+     answer = true;
+}
+
+answer;
+```
+
 ```
 ServiceNow user created in Designated Member Account, both managed and member accounts have different STS Role Names.
 For the STS Role value in STS Assume Role Name (Include only name and not ARN), which account STS Role Name should be set?
