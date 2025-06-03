@@ -34,6 +34,20 @@ answer;
 ```
 
 ```
+var answer = true;
+var now = new GlideDateTime();
+var hour = now.getHourLocalTime();
+
+// 例：全量ジョブが毎日 0:00〜4:00 の間に動くなら、その時間帯だけ絞り込みジョブをスキップ
+if (hour >= 0 && hour < 4) {
+  answer = false;
+}
+
+answer;
+
+```
+
+```
 ServiceNow user created in Designated Member Account, both managed and member accounts have different STS Role Names.
 For the STS Role value in STS Assume Role Name (Include only name and not ARN), which account STS Role Name should be set?
 
