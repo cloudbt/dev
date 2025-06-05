@@ -1,4 +1,17 @@
 
+```
+   var recordIdToDelete = "1"; 
+
+    // import_set_table から指定されたIDのレコードを検索
+    var grDelete = new GlideRecord(import_set_table.getTableName());
+    if (grDelete.get('id', recordIdToDelete)) { // 'id' フィールドで検索
+        // レコードが見つかった場合、削除を実行
+        gs.info("Deleting record with ID: " + recordIdToDelete + " from table: " + import_set_table.getTableName());
+        grDelete.deleteRecord();
+    } else {
+        gs.info("Record with ID: " + recordIdToDelete + " not found in table: " + import_set_table.getTableName());
+    }
+```
 ■import-transform-learning-path
 https://www.servicenow.com/community/servicenow-ai-platform-articles/import-transform-learning-path/ta-p/2306952#ISST
 
