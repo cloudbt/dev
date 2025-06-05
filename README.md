@@ -1,5 +1,28 @@
 
 ```
+Select-CFGResourceConfig -Expression "SELECT resourceId, resourceType WHERE resourceType = 'AWS::EC2::VPC'"
+
+$resourceKeys = @(
+    @{
+        ResourceType = "AWS::EC2::VPC"
+        ResourceId = "vpc-02f6419c0024583d8"
+    },
+    @{
+        ResourceType = "AWS::EC2::NetworkAcl"
+        ResourceId = "acl-035e429f9ad31f322"
+    }
+)
+
+$result = Get-CFGGetResourceConfigBatch -ResourceKey $resourceKeys
+Write-Output "取得したリソース設定："
+$result.BaseConfigurationItems | ForEach-Object {
+    Write-Output "リソースタイプ: $($_.ResourceType)"
+    Write-Output "リソースID: $($_.ResourceId)"
+    Write-Output "設定取得時刻: $($_.ConfigurationItemCaptureTime)"
+    Write-Output "設定状態: $($_.ConfigurationItemStatus)"
+    Write-Output "---"
+}
+
    var recordIdToDelete = "1"; 
 
     // import_set_table から指定されたIDのレコードを検索
