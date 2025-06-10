@@ -1,4 +1,29 @@
 
+
+```
+// Background Scriptで実行するためのコード
+
+// 更新したいRTE Entity Mappingのsys_idを直接指定
+var entityMappingSysId = '19278d7e53d030106747ddeeff7b128e';
+
+// sys_rte_eb_entity_mappingテーブルをsys_idで直接検索
+var grEntityMapping = new GlideRecord('sys_rte_eb_entity_mapping');
+
+// .get()メソッドで指定したsys_idのレコードを取得
+if (grEntityMapping.get(entityMappingSysId)) {
+    // 対象のEntity Mappingの 'Ignore' を true に設定
+    grEntityMapping.setValue('ignore', true);
+    grEntityMapping.update();
+    
+    // 実行結果をシステムログに出力
+    gs.info('Background Script: Successfully set Ignore to true for Entity Mapping: ' + grEntityMapping.getValue('name') + ' (sys_id: ' + entityMappingSysId + ')');
+
+} else {
+    // レコードが見つからない場合もログに出力
+    gs.warn('Background Script: Could not find the Entity Mapping with sys_id: ' + entityMappingSysId);
+}
+```
+
 ```
 Select-CFGResourceConfig -Expression "SELECT resourceId, resourceType WHERE resourceType = 'AWS::EC2::VPC'"
 
