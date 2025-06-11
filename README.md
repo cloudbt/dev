@@ -1,10 +1,12 @@
 ```
 //このスクリプトは SG-Tanium Hardware and Software の scheduled import 実行前に、特定の Entity Mapping を無視するように設定することで、不要なデータの取り込みを防ぐ目的で使用されていると思われます。
-// Entity Mapping名で検索する場合
+// 検索条件を設定
 var entityMappingName = 'impTotemp.ci_installed_application[*]';
+var definitionName = 'SG Tanium Hardware and Software';
 
 var grEntityMapping = new GlideRecord('sys_rte_eb_entity_mapping');
 grEntityMapping.addQuery('name', entityMappingName);
+grEntityMapping.addQuery('sys_rte_eb_definition.name', definitionName);
 grEntityMapping.query();
 
 if (grEntityMapping.next()) {
@@ -14,6 +16,34 @@ if (grEntityMapping.next()) {
             entityMappingName + ' (sys_id: ' + grEntityMapping.getUniqueValue() + ')');
 } else {
     gs.warn('Pre-import Script: Could not find Entity Mapping with name: ' + entityMappingName);
+}
+```
+
+■Ｇｅｔ
+```
+// 検索条件を設定
+var entityMappingName = 'impTotemp.ci_installed_application[*]';
+var definitionName = 'SG Tanium Hardware and Software';
+
+var grEntityMapping = new GlideRecord('sys_rte_eb_entity_mapping');
+grEntityMapping.addQuery('name', entityMappingName);
+grEntityMapping.addQuery('sys_rte_eb_definition.name', definitionName);
+grEntityMapping.query();
+
+if (grEntityMapping.next()) {
+    // ignoreフィールドの値を取得
+    var ignoreValue = grEntityMapping.getValue('ignore');
+    // 結果をログに出力
+    gs.info('Entity Mapping "' + entityMappingName + '" ignore value: ' + ignoreValue + 
+            ' (sys_id: ' + grEntityMapping.getUniqueValue() + ')');
+    // Boolean値として取得したい場合
+    var ignoreBoolean = grEntityMapping.ignore == true;
+    gs.info('Entity Mapping "' + entityMappingName + '" ignore boolean: ' + ignoreBoolean);
+    
+} else {
+    gs.warn('Could not find Entity Mapping with specified criteria:');
+    gs.warn('  Name: ' + entityMappingName);
+    gs.warn('  Definition: ' + definitionName);
 }
 ```
 
