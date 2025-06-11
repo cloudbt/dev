@@ -1,4 +1,21 @@
+```
+//このスクリプトは SG-Tanium Hardware and Software の scheduled import 実行前に、特定の Entity Mapping を無視するように設定することで、不要なデータの取り込みを防ぐ目的で使用されていると思われます。
+// Entity Mapping名で検索する場合
+var entityMappingName = 'impTotemp.ci_installed_application[*]';
 
+var grEntityMapping = new GlideRecord('sys_rte_eb_entity_mapping');
+grEntityMapping.addQuery('name', entityMappingName);
+grEntityMapping.query();
+
+if (grEntityMapping.next()) {
+    grEntityMapping.setValue('ignore', true);
+    grEntityMapping.update();
+    gs.info('Pre-import Script: Successfully set Ignore to true for Entity Mapping: ' + 
+            entityMappingName + ' (sys_id: ' + grEntityMapping.getUniqueValue() + ')');
+} else {
+    gs.warn('Pre-import Script: Could not find Entity Mapping with name: ' + entityMappingName);
+}
+```
 
 ```
 // Background Scriptで実行するためのコード
