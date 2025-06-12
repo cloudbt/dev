@@ -1,3 +1,8 @@
+
+
+![image](https://github.com/user-attachments/assets/31932cb8-40a7-4c50-86fd-e2a2ecc70512)
+
+
 ```
 //このスクリプトは SG-Tanium Hardware and Software の scheduled import 実行前に、特定の Entity Mapping を無視するように設定することで、不要なデータの取り込みを防ぐ目的で使用されていると思われます。
 // 検索条件を設定
