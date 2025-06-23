@@ -1,3 +1,8 @@
+制限： IAMユーザーあたり最大2つのアクセスキー Manage access keys for IAM users - AWS Identity and Access Management
+推奨される使用方法：
+2つのアクセスキーは主にキーローテーション期間中の使用が推奨されており、新しいキーを作成した後は古いキーを無効化して、常に1つのアクティブなアクセスキーを維持することが強く推奨されています Unnecessary Access Keys | Trend Micro。
+https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html
+
 ```
 ローテーションについて
 現在インスタンスAで90日間隔でローテーションしている場合：
