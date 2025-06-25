@@ -1,23 +1,29 @@
-制限： IAMユーザーあたり最大2つのアクセスキー Manage access keys for IAM users - AWS Identity and Access Management
-推奨される使用方法：
-2つのアクセスキーは主にキーローテーション期間中の使用が推奨されており、新しいキーを作成した後は古いキーを無効化して、常に1つのアクティブなアクセスキーを維持することが強く推奨されています Unnecessary Access Keys | Trend Micro。
-https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html
+
 
 ```
-ローテーションについて
-現在インスタンスAで90日間隔でローテーションしている場合：
-選択肢1： インスタンスAが引き続きローテーションを管理し、インスタンスBは新しいキーに更新
-選択肢2： どちらか一方のインスタンスがローテーションを担当
-選択肢3： 外部のシステム（AWS Lambda等）でローテーションを管理
-推奨アプローチ
-ベストプラクティス：
+根本原因
+メインの問題はAzure Log Analytics ワークスペースの設定不備です：
 
-個別のIAMユーザー作成： インスタンスAとB用にそれぞれ専用のIAMユーザーを作成
-同じIAMロール/ポリシー適用： 必要な権限は同じIAMポリシーで管理
-独立したローテーション： 各インスタンスで独立してアクセスキーをローテーション
+Azure VMで「プロセスと依存関係（マップ）」機能が有効化されていない
+ServiceNowがAzure Log Analyticsからデータを取得する際に無効なレスポンスを受信
 
-この方法により、セキュリティを向上させつつ、管理の複雑さを軽減できます。
-現在の要件や制約があれば、より具体的なアドバイスを提供できます。
+対策手順
+1. Azure側の設定確認・修正
+Azure Log Analytics ワークスペースで：
+
+Azure portalでLog Analyticsワークスペースにアクセス
+「ソリューション」または「インサイト」セクションで以下を確認：
+
+Service Map ソリューションが有効化されているか
+VM Insights が有効化されているか
+
+
+
+対象のAzure VMで：
+
+VM Insightsの有効化
+Dependency Agentのインストール確認
+Log Analytics エージェントが正常に動作しているか確認
 ```
 
 ```
