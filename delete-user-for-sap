@@ -1,0 +1,250 @@
+Option Explicit
+
+' SAP Batch User Deletion Script
+' Function: Batch delete specified multiple users across all Clients
+' Author: Assistant
+' Date: July 2025
+
+' Global Variables
+Dim SapGuiAuto As Object
+Dim SAPApp As Object
+Dim SAPCon As Object
+Dim session As Object
+
+' Main program entry point
+Sub BatchDeleteUsers()
+    On Error GoTo ErrorHandler
+    
+    ' Initialize log file
+    Dim logFile As String
+    logFile = ThisWorkbook.Path & "\SAP_User_Delete_Log_" & Format(Now, "yyyymmdd_hhmmss") & ".txt"
+    Open logFile For Output As #1
+    Print #1, "SAP Batch User Deletion Log - " & Format(Now, "yyyy-mm-dd hh:mm:ss")
+    Print #1, String(50, "=")
+    
+    ' Connect to SAP
+    If Not ConnectToSAP() Then
+        Print #1, "Error: Unable to connect to SAP system"
+        Close #1
+        MsgBox "Unable to connect to SAP system, please check if SAP Logon is started", vbCritical
+        Exit Sub
+    End If
+    
+    ' Configure list of users to delete (modify according to actual requirements)
+    Dim usersToDelete As Variant
+    usersToDelete = Array("TEST_USER1", "TEST_USER2", "DEMO_USER", "TEMP_USER")
+    
+    ' Configure Client list (empty means get all Clients)
+    Dim targetClients As Variant
+    targetClients = Array() ' Empty array means all Clients, can also specify like: Array("100", "200", "300")
+    
+    ' Get Client list
+    Dim clientList As Variant
+    If UBound(targetClients) >= 0 Then
+        clientList = targetClients
+    Else
+        clientList = GetAllClients()
+    End If
+    
+    Print #1, "Starting batch user deletion operation..."
+    Print #1, "Target users: " & Join(usersToDelete, ", ")
+    Print #1, "Target Clients: " & Join(clientList, ", ")
+    Print #1, ""
+    
+    ' Loop through each Client to perform deletion operations
+    Dim i As Integer, j As Integer
+    Dim client As String
+    Dim userName As String
+    Dim totalDeleted As Integer
+    Dim totalFailed As Integer
+    
+    totalDeleted = 0
+    totalFailed = 0
+    
+    For i = LBound(clientList) To UBound(clientList)
+        client = CStr(clientList(i))
+        
+        Print #1, "Processing Client: " & client
+        
+        ' Login to specified Client
+        If LoginToClient(client) Then
+            ' Delete each specified user
+            For j = LBound(usersToDelete) To UBound(usersToDelete)
+                userName = CStr(usersToDelete(j))
+                
+                If DeleteUser(userName, client) Then
+                    Print #1, "  ✓ Successfully deleted user: " & userName
+                    totalDeleted = totalDeleted + 1
+                Else
+                    Print #1, "  ✗ Failed to delete user: " & userName
+                    totalFailed = totalFailed + 1
+                End If
+                
+                ' Add short delay to avoid excessive system load
+                Application.Wait (Now + TimeValue("0:00:01"))
+            Next j
+        Else
+            Print #1, "  ✗ Unable to login to Client: " & client
+            totalFailed = totalFailed + UBound(usersToDelete) + 1
+        End If
+        
+        Print #1, ""
+    Next i
+    
+    ' Output summary
+    Print #1, String(50, "=")
+    Print #1, "Batch deletion operation completed"
+    Print #1, "Successfully deleted: " & totalDeleted & " users"
+    Print #1, "Failed deletions: " & totalFailed & " users"
+    Print #1, "Operation completed at: " & Format(Now, "yyyy-mm-dd hh:mm:ss")
+    
+    Close #1
+    
+    MsgBox "Batch deletion operation completed!" & vbCrLf & _
+           "Success: " & totalDeleted & " users" & vbCrLf & _
+           "Failed: " & totalFailed & " users" & vbCrLf & _
+           "Detailed log available at: " & logFile, vbInformation
+    
+    Exit Sub
+    
+ErrorHandler:
+    Print #1, "Error occurred: " & Err.Description
+    Close #1
+    MsgBox "Script execution error: " & Err.Description, vbCritical
+End Sub
+
+' Connect to SAP system
+Function ConnectToSAP() As Boolean
+    On Error GoTo ErrorHandler
+    
+    Set SapGuiAuto = GetObject("SAPGUI")
+    Set SAPApp = SapGuiAuto.GetScriptingEngine
+    
+    If SAPApp.Children.Count = 0 Then
+        ConnectToSAP = False
+        Exit Function
+    End If
+    
+    Set SAPCon = SAPApp.Children(0)
+    Set session = SAPCon.Children(0)
+    
+    ConnectToSAP = True
+    Exit Function
+    
+ErrorHandler:
+    ConnectToSAP = False
+End Function
+
+' Login to specified Client
+Function LoginToClient(client As String) As Boolean
+    On Error GoTo ErrorHandler
+    
+    ' Check if already in the correct Client
+    If session.Info.Client = client Then
+        LoginToClient = True
+        Exit Function
+    End If
+    
+    ' If need to switch Client, perform re-login
+    session.findById("wnd[0]").maximize
+    session.findById("wnd[0]/tbar[0]/okcd").Text = "/nex"
+    session.findById("wnd[0]").sendVKey 0
+    
+    ' Wait for login screen to appear
+    Application.Wait (Now + TimeValue("0:00:02"))
+    
+    ' Enter Client information (modify according to actual situation)
+    session.findById("wnd[0]/usr/txtRSYST-MANDT").Text = client
+    session.findById("wnd[0]/usr/txtRSYST-BNAME").Text = "YOUR_USERNAME" ' Please modify to actual username
+    session.findById("wnd[0]/usr/pwdRSYST-BCODE").Text = "YOUR_PASSWORD" ' Please modify to actual password
+    session.findById("wnd[0]").sendVKey 0
+    
+    ' Wait for login completion
+    Application.Wait (Now + TimeValue("0:00:03"))
+    
+    LoginToClient = True
+    Exit Function
+    
+ErrorHandler:
+    LoginToClient = False
+End Function
+
+' Delete specified user
+Function DeleteUser(userName As String, client As String) As Boolean
+    On Error GoTo ErrorHandler
+    
+    ' Enter user management transaction code
+    session.findById("wnd[0]/tbar[0]/okcd").Text = "/nsu01"
+    session.findById("wnd[0]").sendVKey 0
+    
+    ' Wait for interface to load
+    Application.Wait (Now + TimeValue("0:00:01"))
+    
+    ' Enter username to delete
+    session.findById("wnd[0]/usr/ctxtSUSR02-BNAME").Text = userName
+    session.findById("wnd[0]").sendVKey 0
+    
+    ' Check if user exists
+    If session.findById("wnd[0]/sbar").MessageType = "E" Then
+        ' User does not exist
+        DeleteUser = False
+        Exit Function
+    End If
+    
+    ' Enter edit mode
+    session.findById("wnd[0]/tbar[1]/btn[17]").press
+    
+    ' Wait for edit interface to load
+    Application.Wait (Now + TimeValue("0:00:01"))
+    
+    ' Check if have deletion permission
+    If session.findById("wnd[0]/sbar").MessageType = "E" Then
+        DeleteUser = False
+        Exit Function
+    End If
+    
+    ' Execute mark for deletion operation
+    session.findById("wnd[0]/usr/chkUSR02-UFLAG").Selected = True
+    
+    ' Save changes
+    session.findById("wnd[0]/tbar[0]/btn[11]").press
+    
+    ' Check save result
+    Application.Wait (Now + TimeValue("0:00:01"))
+    
+    If session.findById("wnd[0]/sbar").MessageType <> "E" Then
+        DeleteUser = True
+    Else
+        DeleteUser = False
+    End If
+    
+    Exit Function
+    
+ErrorHandler:
+    DeleteUser = False
+End Function
+
+' Get all available Client list
+Function GetAllClients() As Variant
+    On Error GoTo ErrorHandler
+    
+    ' Return common Client list, can be adjusted according to actual environment
+    GetAllClients = Array("000", "001", "100", "200", "300", "800")
+    Exit Function
+    
+ErrorHandler:
+    ' If error occurs, return default Client list
+    GetAllClients = Array("100", "200", "300")
+End Function
+
+' Helper function: validate user input
+Function ValidateInputs() As Boolean
+    ' Input validation logic can be added here
+    ValidateInputs = True
+End Function
+
+' Helper function: create backup
+Sub CreateBackup()
+    ' Create user data backup before deletion
+    ' Can be implemented as needed
+End Sub
