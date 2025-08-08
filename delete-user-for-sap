@@ -1,14 +1,20 @@
-# Outlook COM オブジェクト作成
-$outlook = New-Object -ComObject Outlook.Application
+# 既存のExcelインスタンスに接続
+$excel = [Runtime.InteropServices.Marshal]::GetActiveObject("Excel.Application")
 
-# .msg ファイルを開く
-$mail = $outlook.Session.OpenSharedItem($filePath)
+# 対象ブックを取得（開いている中から選択）
+$workbook = $excel.Workbooks.Item(1)   # または $excel.Workbooks("book.xlsx")
 
-# 件名と本文を取得
-$subject = $mail.Subject
-$body = $mail.Body   # HTML本文が欲しい場合は $mail.HTMLBody
+# 1枚目のシートを取得
+$sheet = $workbook.Sheets.Item(1)
 
-# Power Automate Desktop に返す
-# （Write-Outputで順番に出力 → PADで配列として受け取る）
-Write-Output $subject
-Write-Output $body
+# B列で最初の空セルを探す（1行目から下に向かって）
+$row = 1
+while ($sheet.Cells.Item($row, 2).Value2 -ne $null -and $sheet.Cells.Item($row, 2).Value2 -ne "") {
+    $row++
+}
+
+# 見つけた空セルに値を設定
+$sheet.Cells.Item($row, 2).Value2 = "新しい値"
+
+# 保存（上書き）
+$workbook.Save()
