@@ -1,0 +1,268 @@
+param(
+    # First workbook name (default: kong.xlsx)
+    [string]$workbookIncidentName = "kong.xlsx",
+    
+    # First worksheet name (default: Sheet1)
+    [string]$sheetIncidentName = "Sheet1",
+    
+    # Second workbook name (default: PersonalTaskList_Wang.xlsx)
+    [string]$workbookPersonalName = "PersonalTaskList_Wang.xlsx",
+    
+    # Second worksheet name (default: Task)
+    [string]$sheetPersonalName = "Task"
+)
+
+# Display configuration
+Write-Host "`nCurrent configuration:" -ForegroundColor Cyan
+Write-Host "First workbook: $workbookIncidentName" -ForegroundColor Yellow
+Write-Host "First worksheet: $sheetIncidentName" -ForegroundColor Yellow
+Write-Host "Second workbook: $workbookPersonalName" -ForegroundColor Yellow
+Write-Host "Second worksheet: $sheetPersonalName" -ForegroundColor Yellow
+
+# Ask user if default configuration should be used
+$useDefault = Read-Host "`nUse the above configuration? (Y/N, default Y)"
+if ($useDefault -eq "N" -or $useDefault -eq "n") {
+    # Allow user to re-enter configuration
+    $workbookIncidentName = Read-Host "Enter first workbook name (default: kong.xlsx)"
+    if ([string]::IsNullOrWhiteSpace($workbookIncidentName)) {
+        $workbookIncidentName = "kong.xlsx"
+    }
+    
+    $sheetIncidentName = Read-Host "Enter first worksheet name (default: Sheet1)"
+    if ([string]::IsNullOrWhiteSpace($sheetIncidentName)) {
+        $sheetIncidentName = "Sheet1"
+    }
+    
+    $workbookPersonalName = Read-Host "Enter second workbook name (default: PersonalTaskList_Wang.xlsx)"
+    if ([string]::IsNullOrWhiteSpace($workbookPersonalName)) {
+        $workbookPersonalName = "PersonalTaskList_Wang.xlsx"
+    }
+    
+    $sheetPersonalName = Read-Host "Enter second worksheet name (default: Task)"
+    if ([string]::IsNullOrWhiteSpace($sheetPersonalName)) {
+        $sheetPersonalName = "Task"
+    }
+    
+    # Display updated configuration
+    Write-Host "`nUpdated configuration:" -ForegroundColor Cyan
+    Write-Host "First workbook: $workbookIncidentName" -ForegroundColor Yellow
+    Write-Host "First worksheet: $sheetIncidentName" -ForegroundColor Yellow
+    Write-Host "Second workbook: $workbookPersonalName" -ForegroundColor Yellow
+    Write-Host "Second worksheet: $sheetPersonalName" -ForegroundColor Yellow
+}
+
+# Get script directory
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+
+# Find all TXT files in script directory
+$txtFiles = Get-ChildItem -Path $scriptDir -Filter *.txt | Where-Object { $_.Name -notlike "*.ps1" }
+
+if ($txtFiles.Count -eq 0) {
+    Write-Host "Error: No TXT files found in script directory." -ForegroundColor Red
+    Read-Host "Press any key to exit..."
+    exit
+}
+
+# Store TXT file names
+$allEmailFilenames = $txtFiles | ForEach-Object { $_.Name }
+
+# Display found files
+Write-Host "`nFound $($txtFiles.Count) TXT files:" -ForegroundColor Cyan
+$allEmailFilenames | ForEach-Object { Write-Host "- $_" }
+
+# Array for storing email data
+$allEmailData = @()
+
+# Process each TXT file
+foreach ($file in $txtFiles) {
+    Write-Host "`n=====================================" -ForegroundColor Green
+    Write-Host "Processing file: $($file.Name)" -ForegroundColor Green
+    Write-Host "=====================================" -ForegroundColor Green
+
+    # Read file content
+    try {
+        $content = Get-Content -Path $file.FullName -Raw -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        Write-Host "Cannot read file $($file.Name): $_" -ForegroundColor Red
+        continue
+    }
+
+    # Variables for extracted info
+    $subject = $null
+    $from = $null
+    $sentDate = $null
+    $body = $null
+    $filename = $file.Name
+
+    # Extract subject
+    if ($content -match '(?im)^(?:Subject|件名)[\s:：]*\s*(.*?)$') {
+        $subject = $matches[1].Trim()
+    }
+
+    if ($content -match '(?im)^(?:From|差出人)[\s:：]*\s*(.*?)$') {
+        $from = $matches[1].Trim()
+    }
+
+    # Extract sent date
+    if ($content -match '(?im)^(?:Sent|送信日時)[\s:：]*\s*(.*?)$') {
+        $sentDate = $matches[1].Trim()
+    }
+
+    $cultureCN = New-Object System.Globalization.CultureInfo("zh-CN")
+    $cultureUS = New-Object System.Globalization.CultureInfo("en-US")
+
+    foreach ($dateStr in $sentDate) {
+        try {
+            if ($dateStr -match '(\d{4})年(\d{1,2})月(\d{1,2})日') {
+                $year = $matches[1]
+                $month = $matches[2]
+                $day = $matches[3]
+                $formattedDate = "$year/$month/$day"
+            }
+            elseif ($dateStr -match '([A-Za-z]+),([A-Za-z]+)(\d+)[，,](\d{4})') {
+                $monthName = $matches[2]
+                $day = $matches[3].Trim()
+                $year = $matches[4]
+                $month = [DateTime]::ParseExact($monthName, "MMMM", $cultureUS).Month
+                $formattedDate = "$year/$month/$day"
+            }
+            else {
+                $dateObj = [DateTime]::Parse($dateStr, $cultureCN)
+                $formattedDate = $dateObj.ToString("yyyy/M/d")
+            }
+        }
+        catch {
+            if ($dateStr -match '\b(\d{4})[^\d]*?(\d{1,2})[^\d]*?(\d{1,2})\b') {
+                $year = $matches[1]
+                $month = $matches[2]
+                $day = $matches[3]
+                $formattedDate = "$year/$month/$day"
+            }
+            else {
+                $formattedDate = "Unrecognized format"
+            }
+        }
+        
+        Write-Host "Original date: $dateStr -> Formatted: $formattedDate"
+    }
+
+    # Extract body
+    if ($content -match '(?s)(\r?\n){2,}(.*)') {
+        $body = $matches[2].Trim()
+    } 
+
+    # Extract System ID
+    if ($body -match '(?im)System ID\s*[：:]\s*(\S+)') {
+        $systemID = $matches[1]
+    }
+    if ($systemID -eq "F56") {
+        $ENV = "PRD"
+    } else {
+        $ENV = "QAS-DEV"
+    }
+
+    # Extract System from subject
+    $System = $null
+    if ($subject -match '\[Asi-Oce\s+([^\]]+)\]') {
+        $System = $matches[1].Trim()
+    }
+
+    # Store email data
+    $emailData = [PSCustomObject]@{
+        Subject = $subject
+        From = $from
+        SentDate = $formattedDate
+        SystemID = $systemID
+        System = $System
+        ENV = $ENV
+        Body = $body
+    }
+    $allEmailData += $emailData
+}
+
+try {
+    $excel = [Runtime.InteropServices.Marshal]::GetActiveObject("Excel.Application")
+    $workbooks = $excel.Workbooks
+    
+    $workbookIncident = $null
+    $workbookPersonal = $null
+    
+    foreach ($wb in $workbooks) {
+        if ($wb.Name -eq $workbookIncidentName) {
+            $workbookIncident = $wb
+        }
+        elseif ($wb.Name -eq $workbookPersonalName) {
+            $workbookPersonal = $wb
+        }
+    }
+    
+    if (-not $workbookIncident) {
+        throw "Workbook $workbookIncidentName not found"
+    }
+    if (-not $workbookPersonal) {
+        throw "Workbook $workbookPersonalName not found"
+    }
+    
+    $sheetIncident = $workbookIncident.Sheets.Item($sheetIncidentName)
+    $sheetPersonal = $workbookPersonal.Sheets.Item($sheetPersonalName)
+    
+    Write-Host "`nConnected to workbook [$workbookIncidentName] sheet [$sheetIncidentName]" -ForegroundColor Green
+    Write-Host "Connected to workbook [$workbookPersonalName] sheet [$sheetPersonalName]" -ForegroundColor Green
+
+    $startRowIncident = 4
+    while ($sheetIncident.Cells.Item($startRowIncident, 2).Value2 -ne $null -and 
+           $sheetIncident.Cells.Item($startRowIncident, 2).Value2 -ne "") {
+        $startRowIncident++
+    }
+    Write-Host "Latest row in sheet [$sheetIncidentName]: $startRowIncident" -ForegroundColor Yellow
+
+    $startRowPersonal = 2
+    while ($sheetPersonal.Cells.Item($startRowPersonal, 2).Value2 -ne $null -and 
+           $sheetPersonal.Cells.Item($startRowPersonal, 2).Value2 -ne "") {
+        $startRowPersonal++
+    }
+    Write-Host "Latest row in sheet [$sheetPersonalName]: $startRowPersonal" -ForegroundColor Yellow
+
+    $rowINC = $startRowIncident
+    $rowPER = $startRowPersonal
+    foreach ($data in $allEmailData) {
+        $INCnumber = $sheetIncident.Cells.Item($rowINC, 1).Value2
+        $sheetIncident.Cells.Item($rowINC, 2).Value2 = $data.System
+        $sheetIncident.Cells.Item($rowINC, 3).Value2 = $data.ENV
+        $sheetIncident.Cells.Item($rowINC, 6).Value2 = $data.Body
+        $sheetIncident.Cells.Item($rowINC, 8).Value2 = "Raised"
+        $sheetIncident.Cells.Item($rowINC, 9).Value2 = $data.From
+        $sheetIncident.Cells.Item($rowINC, 10).Value2 = $data.SentDate
+        $rowINC++
+        
+        $sheetPersonal.Cells.Item($rowPER, 1).Value2 = $INCnumber
+        $sheetPersonal.Cells.Item($rowPER, 2).Value2 = $data.SentDate
+        $sheetPersonal.Cells.Item($rowPER, 4).Value2 = "Wang"
+        $sheetPersonal.Cells.Item($rowPER, 5).Value2 = $data.SentDate
+        $rowPER++
+    }
+    
+    $workbookIncident.Save()
+    $workbookPersonal.Save()
+    Write-Host "`nWorkbooks [$workbookIncidentName] and [$workbookPersonalName] saved" -ForegroundColor Green
+}
+catch {
+    Write-Host "`nError occurred: $($_.Exception.Message)" -ForegroundColor Red
+    Read-Host "Press any key to exit..."
+    exit
+}
+finally {
+    if ($sheetIncident) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($sheetIncident) | Out-Null }
+    if ($sheetPersonal) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($sheetPersonal) | Out-Null }
+    if ($workbookIncident) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbookIncident) | Out-Null }
+    if ($workbookPersonal) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbookPersonal) | Out-Null }
+    if ($workbooks) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbooks) | Out-Null }
+    if ($excel) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null }
+    
+    [System.GC]::Collect()
+    [System.GC]::WaitForPendingFinalizers()
+    
+    Write-Host "`nOperation completed" -ForegroundColor Green
+}
+
+Read-Host "Press any key to exit..."
