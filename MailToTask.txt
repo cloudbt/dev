@@ -12,38 +12,26 @@ param(
     [string]$sheetPersonalName = "Task"
 )
 
-# Display configuration
 Write-Host "`nCurrent configuration:" -ForegroundColor Cyan
 Write-Host "First workbook: $workbookIncidentName" -ForegroundColor Yellow
 Write-Host "First worksheet: $sheetIncidentName" -ForegroundColor Yellow
 Write-Host "Second workbook: $workbookPersonalName" -ForegroundColor Yellow
 Write-Host "Second worksheet: $sheetPersonalName" -ForegroundColor Yellow
 
-# Ask user if default configuration should be used
 $useDefault = Read-Host "`nUse the above configuration? (Y/N, default Y)"
 if ($useDefault -eq "N" -or $useDefault -eq "n") {
-    # Allow user to re-enter configuration
     $workbookIncidentName = Read-Host "Enter first workbook name (default: kong.xlsx)"
-    if ([string]::IsNullOrWhiteSpace($workbookIncidentName)) {
-        $workbookIncidentName = "kong.xlsx"
-    }
+    if ([string]::IsNullOrWhiteSpace($workbookIncidentName)) { $workbookIncidentName = "kong.xlsx" }
     
     $sheetIncidentName = Read-Host "Enter first worksheet name (default: Sheet1)"
-    if ([string]::IsNullOrWhiteSpace($sheetIncidentName)) {
-        $sheetIncidentName = "Sheet1"
-    }
+    if ([string]::IsNullOrWhiteSpace($sheetIncidentName)) { $sheetIncidentName = "Sheet1" }
     
     $workbookPersonalName = Read-Host "Enter second workbook name (default: PersonalTaskList_Wang.xlsx)"
-    if ([string]::IsNullOrWhiteSpace($workbookPersonalName)) {
-        $workbookPersonalName = "PersonalTaskList_Wang.xlsx"
-    }
+    if ([string]::IsNullOrWhiteSpace($workbookPersonalName)) { $workbookPersonalName = "PersonalTaskList_Wang.xlsx" }
     
     $sheetPersonalName = Read-Host "Enter second worksheet name (default: Task)"
-    if ([string]::IsNullOrWhiteSpace($sheetPersonalName)) {
-        $sheetPersonalName = "Task"
-    }
+    if ([string]::IsNullOrWhiteSpace($sheetPersonalName)) { $sheetPersonalName = "Task" }
     
-    # Display updated configuration
     Write-Host "`nUpdated configuration:" -ForegroundColor Cyan
     Write-Host "First workbook: $workbookIncidentName" -ForegroundColor Yellow
     Write-Host "First worksheet: $sheetIncidentName" -ForegroundColor Yellow
@@ -51,11 +39,11 @@ if ($useDefault -eq "N" -or $useDefault -eq "n") {
     Write-Host "Second worksheet: $sheetPersonalName" -ForegroundColor Yellow
 }
 
-# Get script directory
+# script directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
-# Find all TXT files in script directory
-$txtFiles = Get-ChildItem -Path $scriptDir -Filter *.txt | Where-Object { $_.Name -notlike "*.ps1" }
+# find txt files
+$txtFiles = Get-ChildItem -Path $scriptDir -Filter *.txt | Where-Object { $_.Extension -ieq ".txt" }
 
 if ($txtFiles.Count -eq 0) {
     Write-Host "Error: No TXT files found in script directory." -ForegroundColor Red
@@ -63,111 +51,111 @@ if ($txtFiles.Count -eq 0) {
     exit
 }
 
-# Store TXT file names
 $allEmailFilenames = $txtFiles | ForEach-Object { $_.Name }
-
-# Display found files
 Write-Host "`nFound $($txtFiles.Count) TXT files:" -ForegroundColor Cyan
 $allEmailFilenames | ForEach-Object { Write-Host "- $_" }
 
-# Array for storing email data
 $allEmailData = @()
 
-# Process each TXT file
+# regex options
+$optsMulti = [System.Text.RegularExpressions.RegexOptions]::Multiline -bor [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+$optsSingle = [System.Text.RegularExpressions.RegexOptions]::Singleline -bor [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+
 foreach ($file in $txtFiles) {
     Write-Host "`n=====================================" -ForegroundColor Green
     Write-Host "Processing file: $($file.Name)" -ForegroundColor Green
     Write-Host "=====================================" -ForegroundColor Green
 
-    # Read file content
+    # try appropriate encodings: Default first (likely CP932 on Japanese Windows), fallback to UTF8
     try {
-        $content = Get-Content -Path $file.FullName -Raw -Encoding UTF8 -ErrorAction Stop
+        $content = Get-Content -Path $file.FullName -Raw -Encoding Default -ErrorAction Stop
     } catch {
-        Write-Host "Cannot read file $($file.Name): $_" -ForegroundColor Red
-        continue
+        try {
+            $content = Get-Content -Path $file.FullName -Raw -Encoding UTF8 -ErrorAction Stop
+        } catch {
+            Write-Host "Cannot read file $($file.Name) with Default or UTF8 encoding: $_" -ForegroundColor Red
+            continue
+        }
     }
 
-    # Variables for extracted info
+    # init variables
     $subject = $null
     $from = $null
     $sentDate = $null
     $body = $null
     $filename = $file.Name
+    $systemID = $null
+    $formattedDate = $null
+    $System = $null
+    $ENV = $null
 
-    # Extract subject
-    if ($content -match '(?im)^(?:Subject|件名)[\s:：]*\s*(.*?)$') {
-        $subject = $matches[1].Trim()
-    }
+    # extract Subject / From / Sent using Regex (multiline)
+    $m = [regex]::Match($content, '^(?:Subject|件名)\s*[:：]?\s*(.+)$', $optsMulti)
+    if ($m.Success) { $subject = $m.Groups[1].Value.Trim() }
 
-    if ($content -match '(?im)^(?:From|差出人)[\s:：]*\s*(.*?)$') {
-        $from = $matches[1].Trim()
-    }
+    $m = [regex]::Match($content, '^(?:From|差出人)\s*[:：]?\s*(.+)$', $optsMulti)
+    if ($m.Success) { $from = $m.Groups[1].Value.Trim() }
 
-    # Extract sent date
-    if ($content -match '(?im)^(?:Sent|送信日時)[\s:：]*\s*(.*?)$') {
-        $sentDate = $matches[1].Trim()
-    }
+    $m = [regex]::Match($content, '^(?:Sent|送信日時)\s*[:：]?\s*(.+)$', $optsMulti)
+    if ($m.Success) { $sentDate = $m.Groups[1].Value.Trim() }
 
-    $cultureCN = New-Object System.Globalization.CultureInfo("zh-CN")
-    $cultureUS = New-Object System.Globalization.CultureInfo("en-US")
+    # parse sent date (robust handling)
+    if ($sentDate) {
+        $dateStr = $sentDate
 
-    foreach ($dateStr in $sentDate) {
         try {
-            if ($dateStr -match '(\d{4})年(\d{1,2})月(\d{1,2})日') {
-                $year = $matches[1]
-                $month = $matches[2]
-                $day = $matches[3]
-                $formattedDate = "$year/$month/$day"
+            if ($dateStr -match '(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日') {
+                $year = $matches[1]; $month = $matches[2]; $day = $matches[3]
+                $formattedDate = "{0}/{1}/{2}" -f $year, $month, $day
             }
-            elseif ($dateStr -match '([A-Za-z]+),([A-Za-z]+)(\d+)[，,](\d{4})') {
-                $monthName = $matches[2]
-                $day = $matches[3].Trim()
-                $year = $matches[4]
-                $month = [DateTime]::ParseExact($monthName, "MMMM", $cultureUS).Month
-                $formattedDate = "$year/$month/$day"
+            elseif ($dateStr -match '([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})') {
+                $monthName = $matches[1]; $day = $matches[2]; $year = $matches[3]
+                $month = [DateTime]::ParseExact($monthName, "MMMM", [System.Globalization.CultureInfo]::InvariantCulture).Month
+                $formattedDate = "{0}/{1}/{2}" -f $year, $month, $day
             }
             else {
-                $dateObj = [DateTime]::Parse($dateStr, $cultureCN)
-                $formattedDate = $dateObj.ToString("yyyy/M/d")
+                # try several cultures
+                $dateObj = $null
+                foreach ($cultureName in @("ja-JP","zh-CN","en-US")) {
+                    $culture = [System.Globalization.CultureInfo]::new($cultureName)
+                    if ([DateTime]::TryParse($dateStr, $culture, [System.Globalization.DateTimeStyles]::None, [ref]$dateObj)) {
+                        $formattedDate = $dateObj.ToString("yyyy/M/d")
+                        break
+                    }
+                }
+            }
+        } catch {
+            # fallback: try numeric extraction
+            if ($dateStr -match '\b(\d{4})[^\d]*(\d{1,2})[^\d]*(\d{1,2})\b') {
+                $formattedDate = "{0}/{1}/{2}" -f $matches[1], $matches[2], $matches[3]
+            } else {
+                $formattedDate = $dateStr
             }
         }
-        catch {
-            if ($dateStr -match '\b(\d{4})[^\d]*?(\d{1,2})[^\d]*?(\d{1,2})\b') {
-                $year = $matches[1]
-                $month = $matches[2]
-                $day = $matches[3]
-                $formattedDate = "$year/$month/$day"
-            }
-            else {
-                $formattedDate = "Unrecognized format"
-            }
-        }
-        
+
+        if (-not $formattedDate) { $formattedDate = $dateStr }
         Write-Host "Original date: $dateStr -> Formatted: $formattedDate"
     }
 
-    # Extract body
-    if ($content -match '(?s)(\r?\n){2,}(.*)') {
-        $body = $matches[2].Trim()
-    } 
+    # extract Body: everything after a blank line (robust)
+    $bodyMatch = [regex]::Match($content, '\r?\n\s*\r?\n(.*)$', $optsSingle)
+    if ($bodyMatch.Success) { $body = $bodyMatch.Groups[1].Value.Trim() }
+    else { $body = $content.Trim() }
 
-    # Extract System ID
-    if ($body -match '(?im)System ID\s*[：:]\s*(\S+)') {
-        $systemID = $matches[1]
-    }
-    if ($systemID -eq "F56") {
-        $ENV = "PRD"
-    } else {
-        $ENV = "QAS-DEV"
-    }
+    # extract System ID from body
+    $m = [regex]::Match($body, '(?im)System\s*ID\s*[:：]\s*(\S+)', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if ($m.Success) { $systemID = $m.Groups[1].Value.Trim() }
 
-    # Extract System from subject
-    $System = $null
-    if ($subject -match '\[Asi-Oce\s+([^\]]+)\]') {
-        $System = $matches[1].Trim()
+    # set ENV based on systemID
+    if ($systemID -eq "F56") { $ENV = "PRD" } else { $ENV = "QAS-DEV" }
+
+    # extract System from subject e.g. [Asi-Oce  ...]
+    if ($subject) {
+        $m = [regex]::Match($subject, '\[Asi-Oce\s+([^\]]+)\]')
+        if ($m.Success) { $System = $m.Groups[1].Value.Trim() }
     }
 
-    # Store email data
+    # collect data
     $emailData = [PSCustomObject]@{
         Subject = $subject
         From = $from
@@ -176,6 +164,7 @@ foreach ($file in $txtFiles) {
         System = $System
         ENV = $ENV
         Body = $body
+        Filename = $filename
     }
     $allEmailData += $emailData
 }
@@ -183,44 +172,30 @@ foreach ($file in $txtFiles) {
 try {
     $excel = [Runtime.InteropServices.Marshal]::GetActiveObject("Excel.Application")
     $workbooks = $excel.Workbooks
-    
+
     $workbookIncident = $null
     $workbookPersonal = $null
-    
+
     foreach ($wb in $workbooks) {
-        if ($wb.Name -eq $workbookIncidentName) {
-            $workbookIncident = $wb
-        }
-        elseif ($wb.Name -eq $workbookPersonalName) {
-            $workbookPersonal = $wb
-        }
+        if ($wb.Name -eq $workbookIncidentName) { $workbookIncident = $wb }
+        elseif ($wb.Name -eq $workbookPersonalName) { $workbookPersonal = $wb }
     }
-    
-    if (-not $workbookIncident) {
-        throw "Workbook $workbookIncidentName not found"
-    }
-    if (-not $workbookPersonal) {
-        throw "Workbook $workbookPersonalName not found"
-    }
-    
+
+    if (-not $workbookIncident) { throw "Workbook $workbookIncidentName not found" }
+    if (-not $workbookPersonal) { throw "Workbook $workbookPersonalName not found" }
+
     $sheetIncident = $workbookIncident.Sheets.Item($sheetIncidentName)
     $sheetPersonal = $workbookPersonal.Sheets.Item($sheetPersonalName)
-    
+
     Write-Host "`nConnected to workbook [$workbookIncidentName] sheet [$sheetIncidentName]" -ForegroundColor Green
     Write-Host "Connected to workbook [$workbookPersonalName] sheet [$sheetPersonalName]" -ForegroundColor Green
 
     $startRowIncident = 4
-    while ($sheetIncident.Cells.Item($startRowIncident, 2).Value2 -ne $null -and 
-           $sheetIncident.Cells.Item($startRowIncident, 2).Value2 -ne "") {
-        $startRowIncident++
-    }
+    while ($sheetIncident.Cells.Item($startRowIncident, 2).Value2 -ne $null -and $sheetIncident.Cells.Item($startRowIncident, 2).Value2 -ne "") { $startRowIncident++ }
     Write-Host "Latest row in sheet [$sheetIncidentName]: $startRowIncident" -ForegroundColor Yellow
 
     $startRowPersonal = 2
-    while ($sheetPersonal.Cells.Item($startRowPersonal, 2).Value2 -ne $null -and 
-           $sheetPersonal.Cells.Item($startRowPersonal, 2).Value2 -ne "") {
-        $startRowPersonal++
-    }
+    while ($sheetPersonal.Cells.Item($startRowPersonal, 2).Value2 -ne $null -and $sheetPersonal.Cells.Item($startRowPersonal, 2).Value2 -ne "") { $startRowPersonal++ }
     Write-Host "Latest row in sheet [$sheetPersonalName]: $startRowPersonal" -ForegroundColor Yellow
 
     $rowINC = $startRowIncident
@@ -241,7 +216,7 @@ try {
         $sheetPersonal.Cells.Item($rowPER, 5).Value2 = $data.SentDate
         $rowPER++
     }
-    
+
     $workbookIncident.Save()
     $workbookPersonal.Save()
     Write-Host "`nWorkbooks [$workbookIncidentName] and [$workbookPersonalName] saved" -ForegroundColor Green
@@ -258,10 +233,9 @@ finally {
     if ($workbookPersonal) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbookPersonal) | Out-Null }
     if ($workbooks) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbooks) | Out-Null }
     if ($excel) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null }
-    
+
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
-    
     Write-Host "`nOperation completed" -ForegroundColor Green
 }
 
