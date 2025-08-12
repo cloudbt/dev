@@ -1,3 +1,4 @@
+https://www.servicenow.com/docs/ja-JP/bundle/yokohama-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-tanium.html#d320779e473
 
 ```
 負荷分散の調整
