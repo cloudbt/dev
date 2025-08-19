@@ -1,3 +1,27 @@
+```
+Set ws=Wscript.CreateObject("Wscript.Shell")
+if ws.expandenvironmentstrings("%strikkeyflag%")=("on")Then
+    wscript.echo("Screen Never Lockout")
+    ws.Environment("user").item("strikkeyflag")="off"
+    set mi=getobject("winmgmts:win32_process").instances_
+    for each p in mi
+        if ucase(p.name)=ucase("wscript.exe")then
+            p.terminate
+        End if
+    Next
+    wscript.quit
+Else
+    wscript.echo("Screen Never Lockout")
+    ws.Environment("user").item("strikkeyflag")="on"
+    do
+        set WshShell = CreateObject("WScript.Shell")
+        WshShell.SendKeys"{ScrollLock}"
+        wscript.sleep(120000)
+    loop
+end if
+```
+
+
 https://www.servicenow.com/docs/ja-JP/bundle/yokohama-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-tanium.html#d320779e473
 
 ```
