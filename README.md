@@ -1,26 +1,95 @@
 ```
-# 環境変数の確認
-$strikkeyflag = [Environment]::GetEnvironmentVariable("strikkeyflag", "User")
-if ($strikkeyflag -eq "on") {
-    Write-Host "Screen Never Lockout"
-    # 環境変数をoffに設定
-    [Environment]::SetEnvironmentVariable("strikkeyflag", "off", "User")
-    # PowerShellプロセスを終了
-    Get-Process -Name "powershell" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force
-}else {
-    Write-Host "Screen Never Lockout"
-    # 環境変数をonに設定
-    [Environment]::SetEnvironmentVariable("strikkeyflag", "on", "User")
-    # SendKeysを使用するためのアセンブリをロード
-    Add-Type -AssemblyName System.Windows.Forms
-    do {
-        # ScrollLockキーを送信
-        [System.Windows.Forms.SendKeys]::SendWait("{SCROLLLOCK}")
-        
-        # 2分間待機 (120000ミリ秒 = 120秒)
-        Start-Sleep -Seconds 120  
-    } while ($true)
-}
+; JP1 UserLevel Definitions
+; Following definitions are model(initial) data to use JP1.
+; You can adapt these for your site's operation.
+
+; for JP1/AJS2 and JP1/IM
+jp1admin:*=JP1_AJS_Admin,JP1_JPQ_Admin,JP1_AJSCF_Admin,JP1_HPS_Admin,JP1_PFM_Admin,JP1_Console_Admin,JP1_CF_Admin,JP1_CM_Admin
+jp1_admin:=JP1_AJS_Admin
+jp1_guest:=JP1_AJS_Guest
+
+; 拠点ごとに Admin / User を1つずつ
+jp1user_DAV:DAV=JP1_AJS_Guest
+jp1admin_DAV:DAV=JP1_AJS_Manager
+
+jp1user_SDS:SDS=JP1_AJS_Guest
+jp1admin_SDS:SDS=JP1_AJS_Manager
+
+jp1user_DIID:DIID=JP1_AJS_Guest
+jp1admin_DIID:DIID=JP1_AJS_Manager
+
+jp1user_DIT:DIT=JP1_AJS_Guest
+jp1admin_DIT:DIT=JP1_AJS_Manager
+
+jp1user_DHOS:DHOS=JP1_AJS_Guest
+jp1admin_DHOS:DHOS=JP1_AJS_Manager
+
+jp1user_GDS:GDS=JP1_AJS_Guest
+jp1admin_GDS:GDS=JP1_AJS_Manager
+```
+
+```
+# JP1 UserLevel Definitions
+# Following definitions are model(initial) data to use JP1.
+# You can adapt these for your site's operation.
+
+# for JP1/AJS2 and JP1/IM
+# 全管理者権限 - システム全体の管理者
+jp1admin:*=JP1_AJS_Admin,JP1_JPQ_Admin,JP1_AJSCF_Admin,JP1_HPS_Admin,JP1_PFM_Admin,JP1_Console_Admin,JP1_CF_Admin,JP1_CM_Admin,JP1_Rule_Admin,JP1_ITSLM_Admin,JP1_Audit_Admin,JP1_DM_Admin
+
+# 基本ユーザー定義
+jp1_admin:*=JP1_AJS_Admin
+jp1_guest:*=JP1_AJS_Guest
+
+# 拠点別ユーザー定義 - 一般ユーザー（Guest権限）
+jp1user_DAV:DAV=JP1_AJS_Guest
+jp1user_SDS:SDS=JP1_AJS_Guest
+jp1user_DIID:DIID=JP1_AJS_Guest
+jp1user_DIT:DIT=JP1_AJS_Guest
+jp1user_DHOS:DHOS=JP1_AJS_Guest
+jp1user_DSP:DSP=JP1_AJS_Guest
+jp1user_GOD:GOD=JP1_AJS_Guest
+
+# 拠点別管理者定義 - 拠点管理者（Manager権限）
+jp1admin_DAV:DAV=JP1_AJS_Manager
+jp1admin_SDS:SDS=JP1_AJS_Manager
+jp1admin_DIID:DIID=JP1_AJS_Manager
+jp1admin_DIT:DIT=JP1_AJS_Manager
+jp1admin_DHOS:DHOS=JP1_AJS_Manager
+jp1admin_DSP:DSP=JP1_AJS_Manager
+jp1admin_GOD:GOD=JP1_AJS_Manager
+
+# 追加設定例（必要に応じてコメントアウトを解除）
+# 特定拠点用の汎用ユーザー
+# jp1user_(拠点名):*=JP1_AJS_Guest
+# jp1admin_(拠点名):*=JP1_AJS_Manager
+
+# 権限レベル参考:
+# JP1_AJS_Admin    - AJS全管理者権限
+# JP1_AJS_Manager  - AJS管理者権限（拠点レベル）
+# JP1_AJS_Guest    - AJS参照権限のみ
+# JP1_JPQ_Admin    - Job Queue全管理者権限
+# JP1_JPQ_User     - Job Queue利用者権限
+```
+
+```
+4		jp1user_(拠点名)	(拠点名)	*	JP1_AJS_Guest
+5		jp1admin_(拠点名)	(拠点名)	*	JP1_AJS_Manager
+6		jp1user_DAV	DAV	DAV	JP1_AJS_Guest
+7		jp1admin_DAV	DAV	DAV	JP1_AJS_Manager
+8		jp1user_SDS	SDS	SDS	JP1_AJS_Guest
+9		jp1admin_SDS	SDS	SDS	JP1_AJS_Manager
+10		jp1user_DIID	DIID	DIID	JP1_AJS_Guest
+11		jp1admin_DIID	DIID	DIID	JP1_AJS_Manager
+12		jp1user_DIT	DIT	DIT	JP1_AJS_Guest
+13		jp1admin_DIT	DIT	DIT	JP1_AJS_Manager
+14		jp1user_DHOS	DHOS	DHOS	JP1_AJS_Guest
+15		jp1admin_DHOS	DHOS	DHOS	JP1_AJS_Manager
+16		jp1user_DSP	DSP	DSP	JP1_AJS_Guest
+17		jp1admin_DSP	DSP	DSP	JP1_AJS_Manager
+18		jp1user_GOD	GOD	GOD	JP1_AJS_Guest
+19		jp1admin_GOD	GOD	GOD	JP1_AJS_Manager
+
 ```
 
 ```
