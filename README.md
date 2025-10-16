@@ -1,4 +1,29 @@
 ```
+(function executeRule(current, previous /*null when async*/ ) {
+
+// Login ID（社員番号）を取得
+var loginId = (current.u_login_id || '').trim();
+if (!loginId) {
+    return; // Login IDが空なら何もしない
+}
+
+// sys_user検索
+var grUser = new GlideRecord('sys_user');
+grUser.addQuery('employee_number', loginId); // 従業員番号一致
+grUser.addQuery('u_user_type', '一般'); // とりあえず「一般」で固定（後でPC種別判定に置換）
+
+// ユーザIDが「D」で始まらない OR 空
+var qc = grUser.addQuery('u_user_id', 'NOT LIKE', 'D_%');
+qc.addOrCondition('u_user_id', '');
+
+grUser.query();
+if (grUser.next()) {
+    current.assigned_to = grUser.getValue('sys_id'); // 最初に見つかったユーザーを設定
+}
+
+})();
+
+
 ; JP1 UserLevel Definitions
 ; Following definitions are model(initial) data to use JP1.
 ; You can adapt these for your site's operation.
