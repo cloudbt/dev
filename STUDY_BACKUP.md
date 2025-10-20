@@ -65,6 +65,59 @@ https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product
     }
 
 })(input, runId);
+
+
+
+
+(function(input, runId) {
+
+    var systemCategory = ''; // 'ot' または 'it' を格納する変数
+
+    // 1. runIdからインポートセット実行(sys_import_set_run)レコードを取得
+    var importSetRunGr = new GlideRecord('sys_import_set_run');
+    if (!importSetRunGr.get(runId)) {
+        return; // 実行レコードが見つからない場合は終了
+    }
+
+    // 2. インポートセット(sys_import_set)レコードを取得
+    var importSetSysId = importSetRunGr.getValue('import_set');
+    var importSetGr = new GlideRecord('sys_import_set');
+    if (!importSetGr.get(importSetSysId)) {
+         return; // インポートセットが見つからない
+    }
+
+    // 3. インポートセットの作成者（＝実行ユーザ）のIDを取得
+    var runAsUser = importSetGr.getValue('sys_created_by');
+
+    // 4. 実行ユーザのIDで判定
+    // ※ 'ot_user_id', 'it_user_id' の部分は、実際のユーザID(username)に置き換えてください
+    if (runAsUser == 'ot_user_id') {
+        systemCategory = 'ot';
+    } else if (runAsUser == 'it_user_id') {
+        systemCategory = 'it';
+    }
+
+    // 5. systemCategoryが設定された場合のみ、このバッチ内の全ペイロードに適用
+    if (systemCategory) {
+        
+        // このバッチ内のすべてのペイロード(input[i])をループ
+        for (var i = 0; i < input.length; i++) {
+            
+            // ペイロード内の 'items' 配列(input[i].payload.items)をループ
+            for (var j = 0; j < input[i].payload.items.length; j++) {
+                
+                // 'cmdb_ci_computer' のペイロードにのみ値を追加
+                if (input[i].payload.items[j].className == 'cmdb_ci_computer') {
+                    
+                    // 'values' オブジェクトに u_system_category を追加
+                    // (値は文字列として渡します)
+                    input[i].payload.items[j].values.u_system_category = systemCategory;
+                }
+            }
+        }
+    }
+
+})(input, runId);
 ```
 
 ```
