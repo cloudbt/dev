@@ -9,6 +9,42 @@ https://www.servicenow.com/docs/bundle/yokohama-platform-administration/page/int
 SGC-SCCM
 https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-sccm.html
 
+```
+(function(batch, output) {
+   
+   var nameField = gs.getProperty('glide.discovery.assigned_user_match_field', "user_name");
+   
+   for (var i = 0; i < batch.length; i++) {
+      var input = batch[i].input;
+      
+      if (input){
+         var username = input;
+         var x = input.indexOf("\\");
+
+         if (x > -1)
+            username = input.substring(x + 1);
+         else {
+            var y = input.indexOf("/");
+            if ( y > -1)
+              username = input.substring(y + 1);
+         }
+
+         var gr = new GlideRecord('sys_user');
+         gr.addQuery(nameField, username);
+         gr.query();
+         
+         if (gr.next())
+         output[i] = gr.getUniqueValue();
+         else
+         output[i] = "";
+      }
+      else
+      output[i] = "";
+   }
+})(batch, output);
+```
+
+<img width="1116" height="1032" alt="image" src="https://github.com/user-attachments/assets/f01d02b1-cc55-4250-b976-8a6653f383ed" />
 
 
 ```
