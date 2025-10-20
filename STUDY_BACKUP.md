@@ -11,6 +11,9 @@ https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product
 
 
 ```
+var is = new GlideRecord('sys_import_set');
+      if (!is.get(String(runId))) return '';
+
   var dsId = is.getValue('data_source');
       var ds = new GlideRecord('sys_data_source');
       if (!ds.get(dsId)) return '';
