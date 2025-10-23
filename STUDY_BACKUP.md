@@ -1,177 +1,26 @@
+よくあるImport Schedule（インポートスケジュール）エラーの調査・対応方法 と 代表的なエラー一覧 を整理しました。
 
+🧭 エラー発生時の基本確認手順
+① Integration Dashboardの確認
 
+メニュー: Service Graph Connectors → Integration Dashboard
 
+該当のコネクタ（例：SG Tanium、SG SCCMなど）を選択
 
-SCCM 
-assigned to
-https://www.servicenow.com/docs/bundle/yokohama-platform-administration/page/integrate/cmdb/reference/how-sccm-integration-works.html#d263348e348
+「Import with Errors」 が 0 でない場合、詳細を確認
 
-SGC-SCCM
-https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-sccm.html
+👉 リンクをクリックすると sys_import_set_run レコード（実行履歴）画面に遷移します。
 
-```
-(function(batch, output) {
-   
-   var nameField = gs.getProperty('glide.discovery.assigned_user_match_field', "user_name");
-   
-   for (var i = 0; i < batch.length; i++) {
-      var input = batch[i].input;
-      
-      if (input){
-         var username = input;
-         var x = input.indexOf("\\");
+② Import Set Run の確認
 
-         if (x > -1)
-            username = input.substring(x + 1);
-         else {
-            var y = input.indexOf("/");
-            if ( y > -1)
-              username = input.substring(y + 1);
-         }
+sys_import_set_run テーブル（モジュール名：Import Set Runs）
 
-         var gr = new GlideRecord('sys_user');
-         gr.addQuery(nameField, username);
-         gr.query();
-         
-         if (gr.next())
-         output[i] = gr.getUniqueValue();
-         else
-         output[i] = "";
-      }
-      else
-      output[i] = "";
-   }
-})(batch, output);
-```
+状態が「Completed with Errors」または「Failed」のレコードを開く
 
-<img width="1116" height="1032" alt="image" src="https://github.com/user-attachments/assets/f01d02b1-cc55-4250-b976-8a6653f383ed" />
+「Related Links」内の Transform History または Import Log を確認
 
+特に「Transform Map」や「Pre/Post Script」でのエラー内容を確認します。
 
-```
-(function(input, runId) {
+③ Import Log でのエラー分類
 
-    // 1. runIdからインポートセット実行(sys_import_set_run)レコードを取得
-    var importSetRunGr = new GlideRecord('sys_import_set_run');
-    if (!importSetRunGr.get(runId)) {
-        return; // 実行レコードが見つからない場合は終了
-    }
-
-    // 2. インポートセット(sys_import_set)レコードを取得
-    // (GlideRecordのgetRefRecord()はここでは使えない可能性があるため、import_setのsys_idを使います)
-    var importSetSysId = importSetRunGr.getValue('import_set');
-    var importSetGr = new GlideRecord('sys_import_set');
-    if (!importSetGr.get(importSetSysId)) {
-         return; // インポートセットが見つからない
-    }
-
-    // 3. データソース(sys_data_source)レコードを取得
-    var dataSourceGr = importSetGr.data_source.getRefRecord();
-    if (!dataSourceGr || !dataSourceGr.isValidRecord()) {
-        return; // データソースが見つからない
-    }
-
-    // 4. データソース名で判定
-    var dataSourceName = dataSourceGr.getValue('name');
-    var systemCategory = ''; // デフォルト値
-
-    if (dataSourceName.startsWith('ot_')) {
-        systemCategory = 'ot';
-    } else if (dataSourceName.startsWith('it_')) {
-        systemCategory = 'it';
-    }
-
-    // 5. systemCategoryが設定された場合のみ、このバッチ内の全ペイロードに適用
-    if (systemCategory) {
-        
-        // このバッチ内のすべてのペイロード(input[i])をループ
-        for (var i = 0; i < input.length; i++) {
-            
-            // ペイロード内の 'items' 配列(input[i].payload.items)をループ
-            for (var j = 0; j < input[i].payload.items.length; j++) {
-                
-                // 'cmdb_ci_computer' のペイロードにのみ値を追加
-                if (input[i].payload.items[j].className == 'cmdb_ci_computer') {
-                    
-                    // 'values' オブジェクトに u_system_category を追加
-                    // (コメントの指示通り、値は文字列として渡します)
-                    input[i].payload.items[j].values.u_system_category = systemCategory;
-                }
-            }
-        }
-    }
-
-})(input, runId);
-
-
-
-
-(function(input, runId) {
-
-    var systemCategory = ''; // 'ot' または 'it' を格納する変数
-
-    // 1. runIdからインポートセット実行(sys_import_set_run)レコードを取得
-    var importSetRunGr = new GlideRecord('sys_import_set_run');
-    if (!importSetRunGr.get(runId)) {
-        return; // 実行レコードが見つからない場合は終了
-    }
-
-    // 2. インポートセット(sys_import_set)レコードを取得
-    var importSetSysId = importSetRunGr.getValue('import_set');
-    var importSetGr = new GlideRecord('sys_import_set');
-    if (!importSetGr.get(importSetSysId)) {
-         return; // インポートセットが見つからない
-    }
-
-    // 3. インポートセットの作成者（＝実行ユーザ）のIDを取得
-    var runAsUser = importSetGr.getValue('sys_created_by');
-
-    // 4. 実行ユーザのIDで判定
-    // ※ 'ot_user_id', 'it_user_id' の部分は、実際のユーザID(username)に置き換えてください
-    if (runAsUser == 'ot_user_id') {
-        systemCategory = 'ot';
-    } else if (runAsUser == 'it_user_id') {
-        systemCategory = 'it';
-    }
-
-    // 5. systemCategoryが設定された場合のみ、このバッチ内の全ペイロードに適用
-    if (systemCategory) {
-        
-        // このバッチ内のすべてのペイロード(input[i])をループ
-        for (var i = 0; i < input.length; i++) {
-            
-            // ペイロード内の 'items' 配列(input[i].payload.items)をループ
-            for (var j = 0; j < input[i].payload.items.length; j++) {
-                
-                // 'cmdb_ci_computer' のペイロードにのみ値を追加
-                if (input[i].payload.items[j].className == 'cmdb_ci_computer') {
-                    
-                    // 'values' オブジェクトに u_system_category を追加
-                    // (値は文字列として渡します)
-                    input[i].payload.items[j].values.u_system_category = systemCategory;
-                }
-            }
-        }
-    }
-
-})(input, runId);
-```
-
-```
-var is = new GlideRecord('sys_import_set');
-      if (!is.get(String(runId))) return '';
-
-  var dsId = is.getValue('data_source');
-      var ds = new GlideRecord('sys_data_source');
-      if (!ds.get(dsId)) return '';
-
-      var name = (ds.getValue('name') || '').toLowerCase().trim(); // 例: 'ot_SG-SCCM Computer Identity'
-      var pref = detectPrefix(name);
-
-
-  function detectPrefix(name) {
-    if (!name) return '';
-    if (name.indexOf('it_') === 0) return 'it';
-    if (name.indexOf('ot_') === 0) return 'ot';
-    return '';
-  }
-```
+ログの内容を見て、次のように分類します：
