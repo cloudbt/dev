@@ -1,4 +1,6 @@
-とても良い質問です。
+<img width="1856" height="1311" alt="image" src="https://github.com/user-attachments/assets/0bbef19c-e3f9-44bf-a14d-15fc4b812d53" />
+
+
 画像を見る限り、ServiceNow の **Concurrent Import Set**（SG-Tanium のデータインポートジョブ）を開いていて、`Import Log` タブに「No records to display」と出ている状態ですね。
 これは「Import Log が空＝該当ジョブの詳細ログがまだ作成されていない」か、「別の場所にログが出力されている」可能性があります。
 
