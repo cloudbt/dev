@@ -1,3 +1,28 @@
+
+```
+# 配置信息
+$serverIP = "192.168.0.211"
+$username = "Administrator"  # 如果是域用户，格式为 "DOMAIN\Username"
+$password = "你的密码"
+
+# 创建凭据
+$securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+$credential = New-Object System.Management.Automation.PSCredential ($username, $securePassword)
+
+# 连接
+Enter-PSSession -ComputerName $serverIP -Credential $credential -Authentication Negotiate
+```
+
+rdp-login.bat
+```
+@echo off
+cmdkey /generic:TERMSRV/192.168.0.211 /user:Administrator /pass:你的密码
+start mstsc /v:192.168.0.211
+timeout /t 3 >nul
+cmdkey /delete:TERMSRV/192.168.0.211
+```
+
+
 ```
 (function executeRule(current, previous /*null when async*/ ) {
 
