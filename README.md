@@ -1,3 +1,15 @@
+管理者で実行
+```
+net start WinRM
+# 直接创建并设置 TrustedHosts
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "192.168.0.211" -Force
+
+# 验证是否设置成功
+Get-Item WSMan:\localhost\Client\TrustedHosts
+Test-NetConnection -ComputerName 192.168.0.211 -Port 5985
+# 重启 WinRM 服务使配置生效
+Restart-Service WinRM
+```
 
 ```
 # 配置信息
