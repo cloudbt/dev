@@ -22,6 +22,23 @@ timeout /t 3 >nul
 cmdkey /delete:TERMSRV/192.168.0.211
 ```
 
+```
+# rdp-login.ps1
+$server = "192.168.1.100"
+$username = "Administrator"
+$password = "YourPassword"
+
+# 临时添加凭据
+Start-Process cmdkey -ArgumentList "/generic:TERMSRV/$server /user:$username /pass:$password" -Wait -NoNewWindow
+
+# 启动 RDP
+Start-Process mstsc -ArgumentList "/v:$server"
+
+# 等待5秒后删除凭据（可选）
+Start-Sleep -Seconds 5
+Start-Process cmdkey -ArgumentList "/delete:TERMSRV/$server" -NoNewWindow
+```
+
 
 ```
 (function executeRule(current, previous /*null when async*/ ) {
