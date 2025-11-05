@@ -1,3 +1,50 @@
+```
+var userName = 'testuser';
+var userGr = new GlideRecord('sys_user');
+
+if (userGr.get('user_name', userName)) {
+    gs.print('========================================');
+    gs.print('ユーザー名: ' + userGr.user_name);
+    gs.print('表示名: ' + userGr.name);
+    gs.print('アクティブ: ' + userGr.active);
+    gs.print('========================================');
+    
+    var roleGr = new GlideRecord('sys_user_has_role');
+    roleGr.addQuery('user', userGr.sys_id);
+    roleGr.addQuery('state', 'active'); // アクティブなロールのみ
+    roleGr.orderBy('role.name');
+    roleGr.query();
+    
+    gs.print('ロール一覧:');
+    var count = 0;
+    while (roleGr.next()) {
+        count++;
+        var role = roleGr.role.getRefRecord();
+        gs.print(count + '. ' + role.name + ' (' + role.sys_id + ')');
+    }
+    
+    if (count == 0) {
+        gs.print('このユーザーにはロールが割り当てられていません');
+    }
+    gs.print('========================================');
+    gs.print('合計ロール数: ' + count);
+}
+```
+
+## 実行結果の例
+```
+*** Script: ========================================
+*** Script: ユーザー名: testuser
+*** Script: 表示名: Test User
+*** Script: アクティブ: true
+*** Script: ========================================
+*** Script: ロール一覧:
+*** Script: 1. import_admin (xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
+*** Script: 2. import_transformer (xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
+*** Script: 3. itil (xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
+*** Script: ========================================
+*** Script: 合計ロール数: 3
+
 管理者で実行
 ```
 net start WinRM
