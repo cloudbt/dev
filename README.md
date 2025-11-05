@@ -1,3 +1,93 @@
+```
+cd /D D:\JP1\jp1ajs2\bin
+ajsdefine IMP_group_detail.txt
+```
+
+```
+# ===== 設定 =====
+$serverIP = "10.194.229.189"
+$eyadminUser = "eyadmin"
+$eyadminPassword = "eyadminのパスワード"
+$jp1User = "jp1_admin"
+$jp1Password = "jp1_adminのパスワード"
+
+# 認証情報作成
+$eyadminSecurePass = ConvertTo-SecureString $eyadminPassword -AsPlainText -Force
+$eyadminCredential = New-Object System.Management.Automation.PSCredential ($eyadminUser, $eyadminSecurePass)
+
+Write-Host "eyadmin でリモート接続中..." -ForegroundColor Green
+
+# eyadmin でリモート接続（通常の認証）
+Invoke-Command -ComputerName $serverIP -Credential $eyadminCredential -ScriptBlock {
+    param($jp1User, $jp1Pass)
+    
+    Write-Host "接続成功: $env:USERNAME でログイン済み"
+    
+    # 定義ファイル作成
+    $defineFile = "D:\temp\IMP_group.txt"
+    $defineContent = "unit=g,/IMP,,,,,,,,,,,,,,,,,,,,,,,;"
+    
+    $tempDir = "D:\temp"
+    if (-not (Test-Path $tempDir)) {
+        New-Item -ItemType Directory -Path $tempDir -Force
+    }
+    
+    Set-Content -Path $defineFile -Value $defineContent -Encoding Default
+    Write-Host "定義ファイル作成: $defineFile"
+    
+    # スケジュールタスクで jp1_admin として実行
+    $taskName = "JP1_IMP_Creation_Temp"
+    $action = New-ScheduledTaskAction -Execute "D:\JP1\jp1ajs2\bin\ajsdefine.exe" `
+                                       -Argument "`"$defineFile`"" `
+                                       -WorkingDirectory "D:\JP1\jp1ajs2\bin"
+    
+    # 既存タスクがあれば削除
+    $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($existingTask) {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    }
+    
+    Write-Host "スケジュールタスク作成: $taskName"
+    
+    # タスク登録（jp1_admin で実行）
+    Register-ScheduledTask -TaskName $taskName `
+                          -Action $action `
+                          -User $jp1User `
+                          -Password $jp1Pass `
+                          -RunLevel Highest `
+                          -Force | Out-Null
+    
+    Write-Host "jp1_admin でタスク実行中..."
+    
+    # タスク実行
+    Start-ScheduledTask -TaskName $taskName
+    
+    # 完了待機
+    $timeout = 30
+    $elapsed = 0
+    while ((Get-ScheduledTask -TaskName $taskName).State -ne 'Ready' -and $elapsed -lt $timeout) {
+        Start-Sleep -Seconds 1
+        $elapsed++
+    }
+    
+    # タスク情報取得
+    $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName
+    Write-Host "タスク実行結果: $($taskInfo.LastTaskResult)"
+    
+    # タスク削除
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    
+    if ($taskInfo.LastTaskResult -eq 0) {
+        Write-Host "ジョブネットグループ 'IMP' 作成完了" -ForegroundColor Green
+    } else {
+        Write-Host "エラーが発生しました。終了コード: $($taskInfo.LastTaskResult)" -ForegroundColor Red
+    }
+    
+} -ArgumentList $jp1User, $jp1Password
+
+Write-Host ""
+Write-Host "すべての処理が完了しました！" -ForegroundColor Green
+```
 
 https://www.servicenow.com/community/developer-forum/service-graph-connector-sccm-integration-user-guide/m-p/3103061
 
@@ -34,19 +124,7 @@ if (userGr.get('user_name', userName)) {
 }
 ```
 
-## 実行結果の例
-```
-*** Script: ========================================
-*** Script: ユーザー名: testuser
-*** Script: 表示名: Test User
-*** Script: アクティブ: true
-*** Script: ========================================
-*** Script: ロール一覧:
-*** Script: 1. import_admin (xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
-*** Script: 2. import_transformer (xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
-*** Script: 3. itil (xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)
-*** Script: ========================================
-*** Script: 合計ロール数: 3
+
 
 管理者で実行
 ```
@@ -100,150 +178,6 @@ Start-Process mstsc -ArgumentList "/v:$server"
 Start-Sleep -Seconds 5
 Start-Process cmdkey -ArgumentList "/delete:TERMSRV/$server" -NoNewWindow
 ```
-
-
-```
-(function executeRule(current, previous /*null when async*/ ) {
-
-// Login ID（社員番号）を取得
-var loginId = (current.u_login_id || '').trim();
-if (!loginId) {
-    return; // Login IDが空なら何もしない
-}
-
-// sys_user検索
-var grUser = new GlideRecord('sys_user');
-grUser.addQuery('employee_number', loginId); // 従業員番号一致
-grUser.addQuery('u_user_type', '一般'); // とりあえず「一般」で固定（後でPC種別判定に置換）
-
-// ユーザIDが「D」で始まらない OR 空
-var qc = grUser.addQuery('u_user_id', 'NOT LIKE', 'D_%');
-qc.addOrCondition('u_user_id', '');
-
-grUser.query();
-if (grUser.next()) {
-    current.assigned_to = grUser.getValue('sys_id'); // 最初に見つかったユーザーを設定
-}
-
-})();
-
-
-; JP1 UserLevel Definitions
-; Following definitions are model(initial) data to use JP1.
-; You can adapt these for your site's operation.
-
-; for JP1/AJS2 and JP1/IM
-jp1admin:*=JP1_AJS_Admin,JP1_JPQ_Admin,JP1_AJSCF_Admin,JP1_HPS_Admin,JP1_PFM_Admin,JP1_Console_Admin,JP1_CF_Admin,JP1_CM_Admin
-jp1_admin:=JP1_AJS_Admin
-jp1_guest:=JP1_AJS_Guest
-
-; 拠点ごとに Admin / User を1つずつ
-jp1user_DAV:DAV=JP1_AJS_Guest
-jp1admin_DAV:DAV=JP1_AJS_Manager
-
-jp1user_SDS:SDS=JP1_AJS_Guest
-jp1admin_SDS:SDS=JP1_AJS_Manager
-
-jp1user_DIID:DIID=JP1_AJS_Guest
-jp1admin_DIID:DIID=JP1_AJS_Manager
-
-jp1user_DIT:DIT=JP1_AJS_Guest
-jp1admin_DIT:DIT=JP1_AJS_Manager
-
-jp1user_DHOS:DHOS=JP1_AJS_Guest
-jp1admin_DHOS:DHOS=JP1_AJS_Manager
-
-jp1user_GDS:GDS=JP1_AJS_Guest
-jp1admin_GDS:GDS=JP1_AJS_Manager
-```
-
-```
-# JP1 UserLevel Definitions
-# Following definitions are model(initial) data to use JP1.
-# You can adapt these for your site's operation.
-
-# for JP1/AJS2 and JP1/IM
-# 全管理者権限 - システム全体の管理者
-jp1admin:*=JP1_AJS_Admin,JP1_JPQ_Admin,JP1_AJSCF_Admin,JP1_HPS_Admin,JP1_PFM_Admin,JP1_Console_Admin,JP1_CF_Admin,JP1_CM_Admin,JP1_Rule_Admin,JP1_ITSLM_Admin,JP1_Audit_Admin,JP1_DM_Admin
-
-# 基本ユーザー定義
-jp1_admin:*=JP1_AJS_Admin
-jp1_guest:*=JP1_AJS_Guest
-
-# 拠点別ユーザー定義 - 一般ユーザー（Guest権限）
-jp1user_DAV:DAV=JP1_AJS_Guest
-jp1user_SDS:SDS=JP1_AJS_Guest
-jp1user_DIID:DIID=JP1_AJS_Guest
-jp1user_DIT:DIT=JP1_AJS_Guest
-jp1user_DHOS:DHOS=JP1_AJS_Guest
-jp1user_DSP:DSP=JP1_AJS_Guest
-jp1user_GOD:GOD=JP1_AJS_Guest
-
-# 拠点別管理者定義 - 拠点管理者（Manager権限）
-jp1admin_DAV:DAV=JP1_AJS_Manager
-jp1admin_SDS:SDS=JP1_AJS_Manager
-jp1admin_DIID:DIID=JP1_AJS_Manager
-jp1admin_DIT:DIT=JP1_AJS_Manager
-jp1admin_DHOS:DHOS=JP1_AJS_Manager
-jp1admin_DSP:DSP=JP1_AJS_Manager
-jp1admin_GOD:GOD=JP1_AJS_Manager
-
-# 追加設定例（必要に応じてコメントアウトを解除）
-# 特定拠点用の汎用ユーザー
-# jp1user_(拠点名):*=JP1_AJS_Guest
-# jp1admin_(拠点名):*=JP1_AJS_Manager
-
-# 権限レベル参考:
-# JP1_AJS_Admin    - AJS全管理者権限
-# JP1_AJS_Manager  - AJS管理者権限（拠点レベル）
-# JP1_AJS_Guest    - AJS参照権限のみ
-# JP1_JPQ_Admin    - Job Queue全管理者権限
-# JP1_JPQ_User     - Job Queue利用者権限
-```
-
-```
-4		jp1user_(拠点名)	(拠点名)	*	JP1_AJS_Guest
-5		jp1admin_(拠点名)	(拠点名)	*	JP1_AJS_Manager
-6		jp1user_DAV	DAV	DAV	JP1_AJS_Guest
-7		jp1admin_DAV	DAV	DAV	JP1_AJS_Manager
-8		jp1user_SDS	SDS	SDS	JP1_AJS_Guest
-9		jp1admin_SDS	SDS	SDS	JP1_AJS_Manager
-10		jp1user_DIID	DIID	DIID	JP1_AJS_Guest
-11		jp1admin_DIID	DIID	DIID	JP1_AJS_Manager
-12		jp1user_DIT	DIT	DIT	JP1_AJS_Guest
-13		jp1admin_DIT	DIT	DIT	JP1_AJS_Manager
-14		jp1user_DHOS	DHOS	DHOS	JP1_AJS_Guest
-15		jp1admin_DHOS	DHOS	DHOS	JP1_AJS_Manager
-16		jp1user_DSP	DSP	DSP	JP1_AJS_Guest
-17		jp1admin_DSP	DSP	DSP	JP1_AJS_Manager
-18		jp1user_GOD	GOD	GOD	JP1_AJS_Guest
-19		jp1admin_GOD	GOD	GOD	JP1_AJS_Manager
-
-```
-
-```
-Set ws=Wscript.CreateObject("Wscript.Shell")
-if ws.expandenvironmentstrings("%strikkeyflag%")=("on")Then
-    wscript.echo("Screen Never Lockout")
-    ws.Environment("user").item("strikkeyflag")="off"
-    set mi=getobject("winmgmts:win32_process").instances_
-    for each p in mi
-        if ucase(p.name)=ucase("wscript.exe")then
-            p.terminate
-        End if
-    Next
-    wscript.quit
-Else
-    wscript.echo("Screen Never Lockout")
-    ws.Environment("user").item("strikkeyflag")="on"
-    do
-        set WshShell = CreateObject("WScript.Shell")
-        WshShell.SendKeys"{ScrollLock}"
-        wscript.sleep(120000)
-    loop
-end if
-```
-
 
 https://www.servicenow.com/docs/ja-JP/bundle/yokohama-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-tanium.html#d320779e473
 
