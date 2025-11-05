@@ -1,3 +1,164 @@
+このエラーは **PowerShell Remoting の二重ホップ問題（Double-Hop Problem）** が原因です。リモートセッション内で `Start-Process -Credential` を使用すると、アクセス拒否されます。
+
+## **解決方法1：CredSSP 認証を使用（推奨）**
+
+### **設定手順**
+
+#### **1. クライアント側（Windows 11）で設定：**
+
+管理者権限で PowerShell を開く：
+
+```powershell
+# CredSSP を有効化
+Enable-WSManCredSSP -Role Client -DelegateComputer "10.194.229.189" -Force
+
+# または、すべてのコンピュータに対して
+# Enable-WSManCredSSP -Role Client -DelegateComputer "*" -Force
+```
+
+#### **2. サーバー側（10.194.229.189）で設定：**
+
+サーバーにログインして、管理者権限で実行：
+
+```powershell
+# CredSSP を有効化
+Enable-WSManCredSSP -Role Server -Force
+```
+
+#### **3. スクリプトを修正：**
+
+接続時に `-Authentication CredSSP` を追加：
+
+```powershell
+# 認証情報
+$jp1User = "jp1_admin"
+$jp1Password = "パスワード"
+$serverIP = "10.194.229.189"
+$serverAdminPassword = "サーバーのパスワード"
+
+# 認証情報作成
+$serverSecurePass = ConvertTo-SecureString $serverAdminPassword -AsPlainText -Force
+$serverCredential = New-Object System.Management.Automation.PSCredential ("Administrator", $serverSecurePass)
+
+# CredSSP 認証でリモート接続
+Invoke-Command -ComputerName $serverIP -Credential $serverCredential -Authentication CredSSP -ScriptBlock {
+    param($user, $pass)
+    
+    # 定義ファイル作成
+    $defineFile = "D:\temp\IMP_group.txt"
+    $defineContent = "unit=g,/IMP,,,,,,,,,,,,,,,,,,,,,,,;"
+    
+    $tempDir = "D:\temp"
+    if (-not (Test-Path $tempDir)) {
+        New-Item -ItemType Directory -Path $tempDir -Force
+    }
+    
+    Set-Content -Path $defineFile -Value $defineContent -Encoding Default
+    Write-Host "定義ファイル作成: $defineFile"
+    
+    # jp1_admin として ajsdefine 実行
+    $secPass = ConvertTo-SecureString $pass -AsPlainText -Force
+    $cred = New-Object System.Management.Automation.PSCredential ($user, $secPass)
+    
+    $scriptBlock = {
+        param($file)
+        Set-Location "D:\JP1\jp1ajs2\bin"
+        & .\ajsdefine.exe $file
+    }
+    
+    Start-Process powershell -Credential $cred -ArgumentList "-Command", "& {$scriptBlock} -file '$defineFile'" -Wait -NoNewWindow
+    
+    Write-Host "ジョブネットグループ 'IMP' 作成完了"
+    
+} -ArgumentList $jp1User, $jp1Password
+```
+
+---
+
+## **解決方法2：PsExec を使用（CredSSP設定不要）**
+
+PsExec は Sysinternals のツールですが、Windows に標準で入っていません。しかし、軽量で設定不要です。
+
+```powershell
+# サーバーで PsExec をダウンロード・実行
+Invoke-Command -ComputerName $serverIP -Credential $serverCredential -ScriptBlock {
+    param($user, $pass)
+    
+    # 定義ファイル作成
+    $defineFile = "D:\temp\IMP_group.txt"
+    $defineContent = "unit=g,/IMP,,,,,,,,,,,,,,,,,,,,,,,;"
+    Set-Content -Path $defineFile -Value $defineContent -Encoding Default
+    
+    # PsExec で実行（存在する場合）
+    $psexec = "C:\tools\PsExec.exe"
+    if (Test-Path $psexec) {
+        & $psexec -u $user -p $pass -accepteula cmd /c "cd /D D:\JP1\jp1ajs2\bin && ajsdefine.exe $defineFile"
+    } else {
+        Write-Host "PsExec が見つかりません"
+    }
+    
+} -ArgumentList $jp1User, $jp1Password
+```
+
+---
+
+## **解決方法3：スケジュールタスク経由（最も安全）**
+
+```powershell
+Invoke-Command -ComputerName $serverIP -Credential $serverCredential -ScriptBlock {
+    param($user, $pass)
+    
+    # 定義ファイル作成
+    $defineFile = "D:\temp\IMP_group.txt"
+    $defineContent = "unit=g,/IMP,,,,,,,,,,,,,,,,,,,,,,,;"
+    Set-Content -Path $defineFile -Value $defineContent -Encoding Default
+    
+    # 一時的なスケジュールタスクを作成
+    $taskName = "JP1_IMP_Creation_" + (Get-Date -Format "yyyyMMddHHmmss")
+    $action = New-ScheduledTaskAction -Execute "D:\JP1\jp1ajs2\bin\ajsdefine.exe" -Argument "$defineFile" -WorkingDirectory "D:\JP1\jp1ajs2\bin"
+    
+    $secPass = ConvertTo-SecureString $pass -AsPlainText -Force
+    $cred = New-Object System.Management.Automation.PSCredential ($user, $secPass)
+    
+    Register-ScheduledTask -TaskName $taskName -Action $action -User $user -Password $pass -RunLevel Highest -Force
+    
+    # タスク実行
+    Start-ScheduledTask -TaskName $taskName
+    
+    # 完了待機
+    Start-Sleep -Seconds 5
+    
+    # タスク削除
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    
+    Write-Host "ジョブネットグループ 'IMP' 作成完了"
+    
+} -ArgumentList $jp1User, $jp1Password
+```
+
+---
+
+## **最も簡単な解決方法：CredSSP を使う**
+
+**まず試してください：**
+
+1. Windows 11 で実行：
+```powershell
+Enable-WSManCredSSP -Role Client -DelegateComputer "10.194.229.189" -Force
+```
+
+2. サーバー（10.194.229.189）で実行：
+```powershell
+Enable-WSManCredSSP -Role Server -Force
+```
+
+3. 修正したスクリプトを実行
+
+これで解決するはずです。CredSSP 設定が難しい場合は、**解決方法3（スケジュールタスク）** が最も安定しています。
+
+どの方法を試しますか?
+
+
 はい、実現可能です！PowerShell Remoting を使って完全自動化できます。
 
 ## **完全自動化スクリプト**
