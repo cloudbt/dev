@@ -1,3 +1,6 @@
+
+https://www.servicenow.com/community/developer-forum/service-graph-connector-sccm-integration-user-guide/m-p/3103061
+
 ```
 var userName = 'testuser';
 var userGr = new GlideRecord('sys_user');
