@@ -1,3 +1,9 @@
+```
+@echo off
+powershell.exe  -ExecutionPolicy Bypass -File "C:\mail\telework_email_integrated.ps1" -Mode all
+pause
+```
+
 F36_SAP_Login.bat
 ```
 @echo off
