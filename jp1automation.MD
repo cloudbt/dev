@@ -1,3 +1,50 @@
+## **日本語翻訳版**
+
+| パラメータ設定 | ユーザー権限 | 結果 |
+|---------|---------|------|
+| sapgui/user_scripting = FALSE | S_SCRの有無 | ❌ **使用不可** |
+| sapgui/user_scripting = TRUE<br>sapgui/user_scripting_per_user = FALSE | S_SCRの有無 | ✅ **全ユーザーが使用可能** |
+| sapgui/user_scripting = TRUE<br>sapgui/user_scripting_per_user = TRUE | **S_SCRあり** | ✅ **使用可能** |
+| sapgui/user_scripting = TRUE<br>sapgui/user_scripting_per_user = TRUE | **S_SCRなし** | ❌ **使用不可** |
+
+---
+
+## **より詳細な日本語版**
+
+| パラメータ設定 | ユーザー権限 | 結果 |
+|---------------|------------|------|
+| sapgui/user_scripting = FALSE | S_SCR権限の有無を問わず | ❌ **使用不可**<br>（サーバー側で無効） |
+| sapgui/user_scripting = TRUE<br>sapgui/user_scripting_per_user = FALSE | S_SCR権限の有無を問わず | ✅ **全ユーザーが使用可能**<br>（権限チェックなし） |
+| sapgui/user_scripting = TRUE<br>sapgui/user_scripting_per_user = TRUE | ✅ S_SCR権限**あり** | ✅ **使用可能** |
+| sapgui/user_scripting = TRUE<br>sapgui/user_scripting_per_user = TRUE | ❌ S_SCR権限**なし** | ❌ **使用不可**<br>（権限エラー） |
+
+---
+
+## **列見出しの別訳オプション**
+
+もし表の見出しを変更したい場合：
+
+### **バージョン1（簡潔版）**
+```
+パラメータ設定 | 権限 | 結果
+```
+
+### **バージョン2（詳細版）**
+```
+サーバー側パラメータ | ユーザー認可オブジェクト | スクリプティング可否
+```
+
+### **バージョン3（ビジネス文書風）**
+```
+システムパラメータ | S_SCR認可 | 利用可否
+```
+
+---
+
+どのバージョンがお好みですか？または他の表現が必要でしょうか？
+
+
+
 了解しました！各サーバーで異なるユーザーとパスワードを使用するように修正します。
 
 ## **完全版スクリプト（各サーバー個別設定対応）**
