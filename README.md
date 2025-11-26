@@ -204,7 +204,7 @@ if ($response -eq "Y" -or $response -eq "y") {
 
 ```
 @echo off
-powershell.exe  -ExecutionPolicy Bypass -File "C:\mail\telework_email_integrated.ps1" -Mode all
+powershell.exe -ExecutionPolicy Bypass -File "C:\Users\whz\Documents\collect_monthly_worktime.ps1"  -Year 2025 -Month 11
 pause
 ```
 
