@@ -1,4 +1,8 @@
 ```
+https://www.servicenow.com/docs/ja-JP/bundle/zurich-api-reference/page/integrate/inbound-rest/concept/c_IdentifyReconcileAPI.html
+```
+
+```
 # 各日のデータを格納する配列
 $dailyData = @{}  # キー: 日(1-31), 値: @{Hours, Minutes}
 
