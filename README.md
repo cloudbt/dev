@@ -1,5 +1,7 @@
 ```
-https://www.servicenow.com/docs/ja-JP/bundle/zurich-api-reference/page/integrate/inbound-rest/concept/c_IdentifyReconcileAPI.html
+ 既存データの扱いに関する議論
+削除案: コンピュータテーブルからTaniumデータを削除すると、過去のインシデントに紐づくCI情報が消える等の影響甚大であるため、推奨できない。
+手動登録案: ログインIDを手動で流し込むことは可能だが、「全台数分の正しいログインIDリストを準備できるか」という運用・実現可能性に懸念がある。
 ```
 
 ```
