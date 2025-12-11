@@ -1,3 +1,80 @@
+
+
+お問い合わせの文面作成、承知いたしました。
+まず、ご質問の `Discovery : zzzに紐づく` の「zzz」の部分について補足・解説し、その上でNow Support（旧HI）への問い合わせ文案を作成します。
+
+### 1. 「Discovery（zzz）」についての補足
+
+標準的な**Discovery（Horizontal Discovery / IPベースのDiscovery）**の場合、ネットワークアダプターやIPアドレスは**「Linux Server (`cmdb_ci_linux_server`)」**に直接紐づきます。
+
+* **理由:** DiscoveryはSSH等でOS内部にログインし、`ifconfig` や `ip addr` コマンドを叩いて情報を収集します。そのため、「OSが認識しているデバイス」として、OSを表すCI（Linux Server）の直下にNICとIPがぶら下がります。
+* **構造:** `Linux Server` --(Owns)--> `Network Adapter` --(Owns)--> `IP Address`
+
+したがって、比較構造は以下のようになります。
+
+* **SG-AWS:** Linux Server に紐づく
+* **Standard Discovery:** Linux Server に紐づく
+* **SG-Azure:** **VM Instance に紐づく** （ここだけ仲間外れ）
+
+---
+
+### 2. Now Support 問い合わせ文案
+
+以下の文面をベースに、必要に応じて微調整して起票してください。添付ファイルとして、今回ご提示いただいたETLのスクリーンショットや、実際のフォーム画面（IPが表示されていない画面）を添付すると話が早いです。
+
+**件名:**
+SG-AzureにおけるNetwork Adapter/IPアドレスの紐づけ先（VM Instance）の仕様確認と、SG-AWS/Discoveryとの差異について
+
+**本文:**
+お世話になっております。
+Service Graph Connector (SGC) for Azure の仕様と、データモデリングのベストプラクティスについてご教示ください。
+
+**【背景】**
+現在、SGC for AWS、SGC for Azure、および通常のDiscoveryを併用してLinuxサーバーの管理を行っておりますが、それぞれで収集されるNetwork Adapter (NIC) および IP Address の紐づき先（親CI）に差異があり、運用上の課題が生じています。
+
+**【現状の動作】**
+各手法におけるNIC/IPの紐づき先は以下の通り認識しております。
+
+1.  **SG-AWS (Amazon Web Services):**
+    * 親CI: **Linux Server** (`cmdb_ci_linux_server`)
+2.  **ServiceNow Discovery (IP based):**
+    * 親CI: **Linux Server** (`cmdb_ci_linux_server`)
+3.  **SG-Azure (Microsoft Azure):**
+    * 親CI: **VM Instance** (`cmdb_ci_vm_instance`)
+
+**【課題】**
+SGC-Azureのみ、NICおよびIPアドレスが「Linux Server」ではなく、インフラ側の「VM Instance」に紐づけられます。
+これにより、以下の実務上の支障が出ています。
+
+* **UIの不整合:** Linux Serverフォームの「CI IPs」タブ等の関連リストにIPアドレスが表示されない。
+* **連携への影響:** Ansible連携（Ansible Spoke等）において、Linux Serverレコード上の「管理IPアドレス」フィールド等を参照しようとした際、Server自身がIPを持っていないため、参照エラー（Invalid Reference）や自動入力不可といった問題が発生しています。
+
+**【ご質問】**
+1.  **仕様の意図について:**
+    SGC-Azureにおいて、OS（Linux Server）ではなくVM Instance側にNIC/IPを紐づけるのは、Azureのリソース構造（NICが独立したリソースである等）を反映した意図的な設計仕様でしょうか？
+2.  **推奨される解決策について:**
+    Linux Serverを主体として運用（Ansible連携など）を行う場合、この差異をどのように埋めるのが貴社のベストプラクティスでしょうか？
+    * 例A: ETL定義をカスタマイズして、取り込み時にLinux Serverへ紐づくよう変更する（推奨されますか？）
+    * 例B: データ構造はそのまま（VM紐づけ）とし、UIや参照フィールド側の設定（Reference Qualifier等）でカバーする
+
+他社事例や推奨設定がございましたらご教示いただけますと幸いです。
+
+--------------------------------------------------
+
+### 3. 問い合わせ時のポイント（補足）
+
+サポートエンジニアに対して**「Ansibleで困っている」**という実害を強調するのが重要です（単なる見た目の好みの問題ではないと伝えるため）。
+
+回答としておそらく、「AzureのAPI仕様上、VMのリソースとして取得するため仕様通りの動作です」という答えが返ってくる可能性が高いですが、その後の「じゃあどうすべきか（How）」として、今回私たちが議論した**「Reference Qualifierの変更（案D）」**が妥当なワークアラウンドかどうかを確認する裏付けにもなります。
+
+
+
+
+
+
+
+
+
 既存の SG-Azure の Transform / データソースを直接書き換えるのは
 アップグレード時に上書きされるので、別のスクリプト or Job に切り出す方が無難です。
 
