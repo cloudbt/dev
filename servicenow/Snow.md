@@ -1,47 +1,106 @@
 
 
+了解です。ご提示URLの英語版リリースノートに **3.8.1（February 2026）** の記載がありました。内容を反映して、Teams Chat用の報告文を**bug fix中心**で書き直します（Air gap運用不要も明記、参考URL追記、Skipped Updatesの要否も回答）。
+
+---
+
+## （Teams送信用）SG-SCCM アップグレード調査結果（Yokohama／3.6.0→3.8.1）
+
+リーダーさん、お疲れさまです。
+ServiceNow Yokohama 環境で **SG-SCCM を 3.6.0 → 3.8.1** に上げる際の変更点を、**英語版（en）公式リリースノート**を根拠に整理しました。
+
+### 1) 結論（今回の主旨）
+
+* **3.8.x は機能追加というより bug fix が中心**で、特に **Computer Identity データソース周りの修正**が主です。([ServiceNow][1])
+* **Air gap 運用は不要**（= 3.7.0 の新機能は今回は使わない前提でOK）です。([ServiceNow][1])
+
+### 2) バージョン別 変更点（3.7.0 / 3.8.0 / 3.8.1）
+
+* **3.7.0（Sep 2025）**
+
+  * **New**：SCCM **airgap** シナリオ対応（隔離環境向けに PowerShell 抽出→SG-SCCMで処理）
+  * ※ただし今回 **Air gap運用は不要**なので、ここは「影響なし（使わない）」扱いでOK。([ServiceNow][1])
+
+* **3.8.0（Dec 2025）**
+
+  * **Fixed**：Computer Identity データソースの **SQLクエリ不具合修正**
+  * **Fixed/Changed**：**samp_sw_usage の discovery source マッピング**([ServiceNow][1])
+
+* **3.8.1（Feb 2026）**
+
+  * **Fixed**：Computer Identity データソースの **last run datetime 値の修正**
+  * **Fixed**：Computer Identity データソースSQLで **unknown TimeKey column エラーをハンドリング**
+  * **Fixed**：**SCCMMultiDataSourceUtil** スクリプトで **subquery を扱えるよう修正**([ServiceNow][1])
+
+### 3) Upgrade History の “Skipped Updates” は確認すべき？
+
+**結論：確認は「必要性高い」です（推奨）。**
+理由は、アップグレード時に **（カスタマイズ等で）更新が適用されない項目が Skipped として出る**可能性があり、これを見ないと **3.8.0/3.8.1 の修正（例：Computer IdentityのSQL/スクリプト修正）が取り込めていない**ことに気づけないためです。
+→ アップグレード後に **Upgrade History で Skipped Updates の件数・内容確認**をチェック項目に入れるのが安全です。
+
+### 4) 次アクション（提案）
+
+1. 【非本番】で 3.8.1 にアップグレード
+2. 取り込み結果確認（Computer Identity / samp_sw_usage）＋エラー有無確認
+3. **Upgrade History の Skipped Updates** を確認し、該当があれば「維持 or 反映」方針を決定
+
+---
+
+## 参考URL（英語）
+
+* Service Graph Connector for Microsoft SCCM release notes（Version history：3.8.1/3.8.0/3.7.0/3.6.0）([ServiceNow][1])
+
+---
+
+必要なら、この内容をそのまま **非本番チェックリスト（確認観点：Computer Identity / TimeKey / subquery / Skipped Updates）** に落として追記します。
+
+[1]: https://www.servicenow.com/docs/r/store-release-notes/store-platcap-rn-service-graph-connector-microsoft-sccm.html?contentId=~sSqIYg7oQUgWMEQS9RKvg "Service Graph Connector for Microsoft SCCM release notes"
+
+
 ```
 
-お疲れ様です。（ご自身の名前）です。
-ServiceNowとTaniumの連携機能について、データ収集のログ検証を行っておりますが、
-Tanium Assetの仕様および設定について、技術的な観点から確認とご相談がございます。
-【現状と課題】
-現在、ServiceNow側への連携において**「15分間隔でMACアドレスを連携し、新規端末を検知・登録したい」という要件がございます。
-しかし、現在の連携ログを確認したところ、取得できるLast Seen（最終検知日時）などのデータ更新が1時間単位**（例: 09:00, 10:00...）となっており、15分単位での細かい更新が反映されていない状況です。
-【当方の想定：データの流れとLast Seenの仕様について】
-公式ドキュメント等を確認した当方の認識では、ServiceNowが参照しているTanium Assetのデータは、以下のフローで処理されていると理解しております。
-Client → Core/TDS: 端末からサーバーへデータ送信（リアルタイムに近い）
-TDS → Asset DB: Tanium Data ServiceからAssetデータベースへ定期的なジョブでインポート
-Asset DB → ServiceNow: API経由で取得
-このアーキテクチャにおいて、Asset API経由で取得されるLast Seenは、「リアルタイムな通信時刻」ではなく、**「直近のインポートジョブが実行された時点でのスナップショット」**であると想定されます。
-そのため、端末側が通信していても、Asset側へのインポートが実行されるまではAPI上のデータは更新されない仕様であると認識しております。
-【確認およびご相談事項】
-上記を踏まえ、以下の点についてご確認いただけますでしょうか。
-現在のインポートスケジュールの確認
-現在、Tanium Assetにおける「TDSからのインポートスケジュール（Schedule）」は、デフォルトの**「1時間間隔」**に設定されていますでしょうか？
-設定変更の可否（15分間隔への短縮）
-もし上記設定がボトルネックとなっている場合、このインポートスケジュールを**「15分間隔」**に変更していただくことは可能でしょうか？
-（サーバー負荷等への影響も含め、許容範囲内かご判断いただきたく存じます）
-【懸念点】
-もしインポート間隔の短縮が難しい場合、情報の反映に最大1時間のタイムラグが避けられない仕様となり、現在の「15分間隔での連携要件」を満たすための設計見直しが必要となります。
-お忙しいところ恐縮ですが、ご確認のほどよろしくお願いいたします。
+Store Release Notes（SG-SCCM version history: 3.6.0/3.7.0/3.8.0/3.8.1）
+https://www.servicenow.com/docs/r/store-release-notes/store-platcap-rn-service-graph-connector-microsoft-sccm.html?contentId=~sSqIYg7oQUgWMEQS9RKvg
 
+ServiceNow Store listing（SG-SCCM 3.8.1 details / requirements）
+https://store.servicenow.com/store/app/b06aeb261b246a50a85b16db234bcb87
 
+Yokohama: SG-SCCM overview（重要情報: last_run_datetime / supported versions / data sources / workarounds）
+https://www.servicenow.com/docs/r/yokohama/servicenow-platform/service-graph-connectors/cmdb-integration-sccm.html
 
-データの流れと技術的根拠を含めつつ、簡潔にまとめました。
-件名： Tanium Assetデータ更新頻度（Last Seen仕様）に関する確認とご相談
-有田様
-お疲れ様です。（ご自身の名前）です。
-ServiceNow連携の検証において、「15分間隔での新規端末検知」という要件に対し、取得データのLast Seenが1時間単位でしか更新されない事象を確認しております。
-つきましては、Tanium Assetの仕様に関し、以下の確認と設定変更のご相談をお願いいたします。
-【当方の想定原因】
-Tanium Assetの構造上、APIが返すデータはリアルタイムではなく、**「TDS (Tanium Data Service) から Asset DB へのインポートジョブ」**実行時点のスナップショットであると認識しております。
-そのため、このインポート間隔が1時間の場合、API上のLast Seenも1時間毎にしか更新されません。
-【ご依頼事項】
-設定確認: 現在、Assetのインポートスケジュールはデフォルトの**「1時間」**になっていますでしょうか。
-設定変更: 上記が原因の場合、スケジュールを**「15分」**に短縮していただくことは可能でしょうか。（サーバー負荷等が許容範囲内であれば）
-もし変更が難しい場合、現在の要件（15分間隔での即時検知）が実現できないため、設計の見直しが必要となります。
-ご確認のほどよろしくお願いいたします。
+Yokohama: Upgrade to the latest version（Skipped Updates / full pull guidance）
+https://www.servicenow.com/docs/r/yokohama/servicenow-platform/service-graph-connectors/upgrade-sccm-newer-version.html?contentId=gModv~m0VuT0VK9~yr1g1A
+
+Yokohama: Configure using SGC Central（テンプレート/接続項目/SQLカスタム/スケジュール）
+https://www.servicenow.com/docs/r/yokohama/servicenow-platform/service-graph-connectors/sgcc-configure-sccm-integ.html?contentId=fqjjC7N3UKwSyqAHnW1nLA
+
+Yokohama: Targeted CMDB classes（Computer/Disk/IP/NIC/Software 等の属性・関係）
+https://www.servicenow.com/docs/r/yokohama/servicenow-platform/service-graph-connectors/cmdb-sccm-classes.html
+
+Air gap overview（Zurich系: air gapの定義、3.7.0以降で利用可）
+https://www.servicenow.com/docs/r/servicenow-platform/service-graph-connectors/sgc-sccm-airgap.html
+
+Air gap high-secure server（PowerShell scripts 等）
+https://www.servicenow.com/docs/r/servicenow-platform/service-graph-connectors/sgc-sccm-airgap-high-secure.html
+
+Air gap low-secure server（PowerShell script / permissions 等）
+https://www.servicenow.com/docs/r/servicenow-platform/service-graph-connectors/sgc-sccm-airgap-low-secure.html
+
+Air gap in ServiceNow instance（PowerShell plugin / SGC Central connection fields）
+https://www.servicenow.com/docs/r/servicenow-platform/service-graph-connectors/sgc-sccm-airgap-sn-instance.html
+
+Yokohama: Roll back an application（アプリロールバック手順）
+https://www.servicenow.com/docs/r/yokohama/platform-administration/rollback-scoped-applications.html?contentId=W0QRaLi30sQZU6nriJUHlg
+
+Yokohama: Rollback context properties（保持期限: app install 15日 etc）
+https://www.servicenow.com/docs/r/yokohama/platform-administration/table-administration-and-data-management/rollback-context-properties.html?contentId=tbTvR9qTKbmBTpPI6bQlmg
+
+Yokohama: Review skipped records using related lists（Upgrade Historyの関連リスト）
+https://www.servicenow.com/docs/r/yokohama/platform-administration/upgrade-management/um-access-rl.html?contentId=hKyFr93nlfPmoqiN_GrdFQ
+
+Resolve skipped update（Diff/Merge/Resolution Status）
+https://www.servicenow.com/docs/r/platform-administration/upgrade-management/um-resolve-skipped-update.html?contentId=4Lf1YQVCPPb3C6RHqbzJYw
+
 ```
 
 
