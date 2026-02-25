@@ -1,4 +1,97 @@
 
+了解。いまの状況（**Computer IdentityのSQL/ETLをカスタムしている**）を前提に、**アップグレードの実務アドバイス**と、**リーダーさん向け報告文（Teams貼り付け用）**を更新しました。
+
+---
+
+## アップグレードのアドバイス（カスタムあり前提）
+
+### 1) まず押さえるポイント
+
+* **3.8.0 / 3.8.1 は bug fix中心**で、特に **Computer Identity（SQL/TimeKey/last run datetime）** と **SCCMMultiDataSourceUtil（subquery）**が修正対象。
+* いっぽう現行で
+
+  * **データソースSQLをカスタム**
+  * **IntegrationHub ETLの変換/属性/マッピングを追加（例：`u_epenabled_1`）**
+    しているので、アップグレード時に **修正が自動適用されず Skipped になるリスクが高い**。
+
+### 2) 推奨手順（最短で安全）
+
+**A. 事前（本番前）**
+
+* 現行のカスタムを「棚卸し」
+
+  * Computer Identity の **データソースSQL**（変更差分が分かる形で保存）
+  * ETL：追加した **Transform / Attribute / Mapping** の一覧（スクショでもOK）
+  * subqueryを使っているか（SQLに `SELECT ... (SELECT ...)` 等があるか）
+* 可能なら非本番で **3.8.1へ先行**して、後述チェックを実施
+
+**B. アップグレード直後（ここが重要）**
+
+* **Upgrade History で Skipped Updates を必ず確認**
+
+  * Skipped が 0 でも、念のため Computer Identity周辺は個別チェック
+  * Skipped があれば “何が skipped されたか” を確定（SQL/Script/ETLのどれか）
+
+**C. 反映（マージ方針）**
+
+* 基本方針は **「3.8.x の修正を取り込みつつ、既存カスタム（追加カラム/Transform/Mapping）は維持」**
+* 修正とカスタムが同じ箇所（Computer Identity SQL）に載っている場合は
+  **3.8.1 の修正意図（TimeKey/last_run/subquery）を残す形でSQLをマージ**する
+
+**D. 動作確認（最小セット）**
+
+* Computer Identity の取り込みで
+
+  * **TimeKey関連エラーが出ない**
+  * last run datetime が正常に更新される（差分取り込みの挙動が破綻しない）
+  * 既存の追加項目（`u_epenabled_1` 等）が引き続き取り込めている
+* samp_sw_usage について、discovery source マッピング変更の影響がないか最低限確認
+
+---
+
+## リーダーさんへの報告（Teams貼り付け用・反映版）
+
+リーダーさん、お疲れさまです。
+Yokohama の **SG-SCCM 3.6.0 → 3.8.1** アップグレードについて、英語版公式リリースノート＋現行設定（カスタム有）を踏まえて整理しました。
+
+### 1) 結論
+
+* **3.8.0/3.8.1 は機能追加より bug fix中心**で、特に **Computer Identity（データソースSQL/TimeKey/last run datetime）** と **SCCMMultiDataSourceUtil（subquery）**修正が主です。
+* **Air gap運用は不要**のため、3.7.0 の新機能は今回は使わない前提でOKです。
+* 重要：現行で **Computer IdentityのデータソースSQLやIntegrationHub ETLマッピングをカスタムしている**ため、アップグレードで修正が**自動適用されず（Skipped）**になるリスクが高いです。
+
+### 2) バージョン別の主な変更点（要点）
+
+* **3.7.0**：Air gap対応（今回不要）
+* **3.8.0**：Computer Identity データソースのSQL不具合修正／samp_sw_usage の discovery source マッピング変更
+* **3.8.1**：Computer Identity の last run datetime 修正／unknown TimeKey column エラーのハンドリング／SCCMMultiDataSourceUtil の subquery対応修正
+
+### 3) 運用影響（今回のポイント）
+
+* 現行が **SQL/ETLをカスタム**しているため、3.8.x の修正（特にComputer Identity周り）が **競合で適用されない可能性**あり
+  → アップグレード後に **Upgrade History の Skipped Updates 確認は必須（必要性高）**
+  → Skippedがあれば、該当（SQL/Script/ETL）を特定して **3.8.x 修正を取り込みつつカスタムを維持する形でマージ**が必要
+
+### 4) 推奨進め方
+
+1. 【非本番】で 3.8.1 へ先行アップグレード
+2. Upgrade History で Skipped Updates を確認（Computer Identity周辺を重点）
+3. 必要に応じて SQL/Script/ETL の差分をマージ
+4. 最小動作確認：Computer Identity（TimeKey/last run更新/追加項目）＋ samp_sw_usage（mapping影響）
+
+### 参考（英語）
+
+* SG-SCCM Release notes（3.8.1/3.8.0/3.7.0）
+  [https://www.servicenow.com/docs/r/store-release-notes/store-platcap-rn-service-graph-connector-microsoft-sccm.html?contentId=~sSqIYg7oQUgWMEQS9RKvg](https://www.servicenow.com/docs/r/store-release-notes/store-platcap-rn-service-graph-connector-microsoft-sccm.html?contentId=~sSqIYg7oQUgWMEQS9RKvg)
+
+---
+
+必要なら、次にこちらで **“非本番チェックリスト（確認項目＋合否判定）”** を1枚で作ります。
+（特に「Skippedが出た時に何を見ればいいか」「SQLマージの観点」まで落とした実行手順にできます。）
+
+
+
+
 
 了解です。ご提示URLの英語版リリースノートに **3.8.1（February 2026）** の記載がありました。内容を反映して、Teams Chat用の報告文を**bug fix中心**で書き直します（Air gap運用不要も明記、参考URL追記、Skipped Updatesの要否も回答）。
 
