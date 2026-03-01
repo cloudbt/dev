@@ -1,3 +1,60 @@
+
+
+# SG-Azure 自動収集における前提条件と根拠
+
+本資料の記載内容は **2026年3月1日時点** の情報に基づく。最新情報は各参照先ドキュメントを確認のこと。
+
+---
+
+## 前提条件一覧
+
+| # | 分類 | 前提条件 | 根拠 | 備考 |
+|:-:|:----:|---------|:----:|------|
+| 1 | 共通 | Azure AD アプリ登録（App Registration）の作成 | ①②③ | |
+| 2 | 共通 | Microsoft Graph API「User.Read」権限（委任）の付与 | ③ | |
+| 3 | 共通 | 対象サブスクリプションの「閲覧者（Reader）」ロール付与 | ③ | |
+| 4 | 共通 | ServiceNow側 ハードウェア接続の構成 | ①② | |
+| 5 | SW収集 | Azure Log Analytics ワークスペースの作成 | ③⑤ | HW収集のみの場合は不要 |
+| 6 | SW収集 | Log Analytics API「Data.Read」権限（委任）の付与 | ③ | |
+| 7 | SW収集 | Azure Monitoring Agent (AMA) のインストール | ③⑦ | AMA未導入の場合、SW情報収集不可 |
+| 8 | SW収集 | 変更履歴とインベントリ用DCRの構成 | ③ | |
+| 9 | SW収集 | ServiceNow側 ソフトウェア接続の構成 | ①②③ | |
+| 10 | プロセス/TCP | VM insights の有効化（Dependency Agent含む） | ④⑧ | 未導入の場合、プロセス・TCP情報収集不可 |
+| 11 | プロセス/TCP | プロセスとTCP接続用DCRの構成 | ④ | SW用DCR（#8）とは別に必要 |
+| 12 | Linux制約 | Linux Guest Agent 2.4.0.2未満ではDeep Discovery収集不可 | ③⑥ | RunCommand機能が非サポートのため |
+| 13 | Linux制約 | 2.4.0.2未満のVMはLog Analytics＋DependencyAgentで代替 | ③④ | プロセス・TCP接続のみ代替可能 |
+
+---
+
+## 参照先ドキュメント一覧
+
+| No. | ドキュメント名 | URL |
+|:---:|--------------|-----|
+| ① | ServiceNow Docs - SG-Azure 概要 (Yokohama) | https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-azure.html |
+| ② | ServiceNow Docs - SG-Azure 構成手順 (Yokohama) | https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/task/configure-azure-integration.html |
+| ③ | ServiceNow Community - Azure SGC Version 1.12 | https://www.servicenow.com/community/cmdb-articles/azure-service-graph-connector-version-1-12/ta-p/3308034 |
+| ④ | ServiceNow Community - Azure SGC Version 1.10 | https://www.servicenow.com/community/cmdb-articles/azure-service-graph-connector-version-1-10/ta-p/3079902 |
+| ⑤ | ServiceNow Community - SG-Azure Overview | https://www.servicenow.com/community/cmdb-articles/service-graph-connector-for-azure-overview/ta-p/2301822 |
+| ⑥ | Microsoft Learn - Managed Run Commands (Linux VM) | https://learn.microsoft.com/en-us/azure/virtual-machines/linux/run-command-managed |
+| ⑦ | Microsoft Learn - Azure Monitoring Agent overview | https://learn.microsoft.com/en-us/azure/azure-monitor/agents/azure-monitor-agent-overview |
+| ⑧ | Microsoft Learn - VM insights overview | https://learn.microsoft.com/en-us/azure/azure-monitor/vm/vminsights-overview |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ■SG-Azureによる自動収集の前提条件・制約事項
 SG-Azureを使用してAzure環境から構成情報を自動収集するにあたり、以下の前提条件および制約事項がある。
 
