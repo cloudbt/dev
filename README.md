@@ -1,63 +1,113 @@
+■SG-Azureによる自動収集の前提条件・制約事項
+SG-Azureを使用してAzure環境から構成情報を自動収集するにあたり、以下の前提条件および制約事項がある。
+
+【Azure側の前提条件】
+1. Microsoft Entra ID（旧Azure AD）にSG-Azure専用のアプリ登録（サービスプリンシパル）が
+   作成されていること。
+   - Microsoft Graph API（User.Read, Delegated）およびLog Analytics API（Data.Read, Delegated）
+     の権限が付与されていること。
+   - 有効なクライアントシークレットが設定されていること（有効期限は最大24か月、
+     本運用では180日ごとにローテーションを実施）。
+
+2. 対象サブスクリプションのIAMにおいて、SG-Azure専用アプリに
+   「閲覧者（Reader）」ロールが割り当てられていること。
+
+3. ソフトウェア情報の収集には、以下の構成が必要である。
+   - Log Analyticsワークスペースが作成されていること。
+   - Azure Monitoring Agent（AMA）が対象仮想マシンにインストールされていること。
+   - Change Tracking and Inventory機能が有効化され、対応するData Collection Rule（DCR）が
+     仮想マシンに関連付けられていること。
+   ※AMAが導入されていない仮想マシンからは、ソフトウェア情報および
+    TCPコネクション情報を収集することができない。
+
+4. プロセス情報・TCPコネクション情報の収集には、VM insights（Dependency Agent）の
+   有効化が必要である。
+
+【Linux VMに関する制約事項】
+- Linux VMのバージョンが2.4.0.2より古い場合、Azure RunCommand機能が
+  サポートされないため、SG-AzureによるDeep Discoveryデータ
+  （プロセス・TCPコネクション等）の収集ができない。
+  ※当該バージョン未満のLinux VMについては、Log Analyticsワークスペースおよび
+   Dependency Agentを使用した代替方式での収集が可能である。
+- AMAがサポートするLinuxディストリビューションおよびカーネルバージョンに制限がある。
+  詳細はMicrosoft公式ドキュメント「Azure Monitor Agent supported operating systems」
+  を参照すること。
+- Change Tracking拡張機能は、Linuxのハードニング標準をサポートしていない。
+
+【ServiceNow側の前提条件】
+- Service Graph Connector for Microsoft Azureプラグイン（ServiceNow Store）が
+  インストールされていること。
+  ※最新版: 1.15.0
+  ※対応プラットフォームバージョン: Zurich, Yokohama, Xanadu, Washington DC,
+   Vancouver, Utah
+- システム管理者権限でログインし、システム言語を英語に設定して作業すること。
+
+【その他の注意事項】
+- SG-Azureにはキーローテーション機能および通知機能が組み込まれていないため、
+  クライアントシークレットの有効期限管理は手動で行う必要がある。
+- Change Tracking and Inventoryの有効化により、Azure Monitorおよび
+  Azure Automationに追加料金が発生する場合がある。
+  事前にAzure Monitorの料金体系を確認すること。
+- 日本語・中国語環境のVMでは、Change Tracking拡張機能のSvcNameや
+  SoftwareNameフィールドが文字化けする既知の問題がある
+  （AMA for Windows 1.24.0以降で修正済み）。
+
+※本手順書は2026年3月1日時点の情報に基づいて記載している。
+ 最新の前提条件・制約事項・サポート対象については、以下の公式ドキュメント
+ （英語版）を参照すること。
+
+- ServiceNow Docs - Service Graph Connector for Microsoft Azure (Yokohama):
+  https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-azure.html
+
+- ServiceNow Docs - Configure Service Graph Connector for Microsoft Azure (Yokohama):
+  https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/task/configure-azure-integration.html
+
+- ServiceNow Docs - Service Graph Connector for Microsoft Azure Properties (Yokohama):
+  https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/reference/cmdb-sgc-azure-props.html
+
+- ServiceNow Docs - CMDB classes targeted in Service Graph Connector for Microsoft Azure (Yokohama):
+  https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/reference/cmdb-azure-classes.html
+
+- ServiceNow Store - Service Graph Connector for Microsoft Azure:
+  https://store.servicenow.com/store/app/9fe86b2e1be06a50a85b16db234bcb0a
+
+- Microsoft Learn - Azure Change Tracking and Inventory (AMA):
+  https://learn.microsoft.com/en-us/azure/azure-change-tracking-inventory/overview-monitoring-agent
+
+- Microsoft Learn - Azure Monitor Agent supported operating systems:
+  https://learn.microsoft.com/en-us/azure/azure-monitor/agents/azure-monitor-agent-supported-operating-systems
+
+- Microsoft Learn - Azure Change Tracking and Inventory Support matrix:
+  https://learn.microsoft.com/en-us/azure/azure-change-tracking-inventory/change-tracking-inventory-support-matrix
 
 
-会議の内容を整理し、重要なポイントと今後のアクション（ToDo）をまとめました。
-会議の要約
-プラグインのアップデートとワークスペース移行に関する確認が行われました。主な議題は、既存設定の維持、バージョンアップの可否、およびインストール時の制約についてです。
- * セットアップ環境の変更: 今後は「ワークスペース」経由でのセットアップが推奨されるが、既存（旧方式）で設定済みのものもそのまま表示・利用可能であり問題ない。
- * バージョン3.8.1へのアップグレード: インスタンスの場所（横浜など）によって制限があるか懸念されたが、デモ環境ではアップグレードの表示が確認できた。
- * インストール時の制約: ストアで許可されていないパッケージ（SGC関連など）があるため、先に許可を得るプロセスが必要になる可能性がある。
-ToDoリスト
-【確認・調査】
- * [ ] インスタンスバージョンの確認: 現在のインスタンス（横浜等）で、本当にバージョン3.8.1まで上げられるのか詳細を確認する。
- * [ ] 依存パッケージの確認: SGC等の依存パッケージがストアで許可されているか確認し、未許可の場合は許可申請の手順を整理する。
- * [ ] 手順書の精査: アップグレードに関する注意事項2点について、既存の手順書に正しく記載されているか確認する。
-【共有・連絡】
- * [ ] エビデンスの共有: アップグレード画面のキャプチャを撮影し、関係者に共有する。
- * [ ] ジョさんへの連携: 調査結果および確認事項について、ジョさんへ情報を共有する。
-> [!NOTE]
-> 発言者の方が本日16時に早退されるとのことですので、急ぎの確認事項がある場合は早めの連絡が良さそうです。
-> 
-こちらの内容で、議事録のドラフトとして修正や追加したい部分はありますか？
 
 
 
-
-アップロードされた音声ファイル の内容に基づき、会議の文字起こしと要約を以下にまとめました。
-会議の要約
-本会議では、スマート配送のステータス通知におけるシステム構成の妥当性について議論が行われました。
- * 現状の課題: 既存の「ワークステータスラムダ（Lambda）」を介して新機能を実装する案が出ていますが、参加者からは「構成として美しくない」「既存への影響が懸念される」といった否定的な意見が相次ぎました。
- * 主な懸念点:
-   * 特定の条件分岐のためにRDS（データベース）へ問い合わせる必要があり、現在のイベント駆動の仕組みと噛み合っていない可能性があること。
-   * 処理が多段（ラムダの連鎖）になることで、エラー時の影響範囲の特定やデバッグが困難になるリスク。
- * 提案と今後の方針:
-   * 既存のラムダに相乗りするのではなく、EventBridge側でロジックを分岐させ、新しいラムダを直接呼び出す構成が望ましいとの意見で一致しました。
-   * この設計上の懸念について、依頼元のチームへヒアリングおよびアドバイスを行うこととし、本提案内容で投票・承認を進める運びとなりました。
-文字起こし（要約版）
-A: この依頼元のIssueにある図なんですが、正直ナンセンスだと思っています。既存の「ワークステータスラムダ」を呼び出す形になっていますが、これだとEventBridgeからのメッセージだけでは分岐条件が分からず、RDSに問い合わせる必要が出てきます。
-B: なるほど。あまり良い構成とは思えませんね。
-A: 例えばスマート配送の契約ステータスによって振り分けるようなロジックが必要になります。既存のラムダをいじりたくないという意図はあるかもしれませんが、処理が何段も重なると、どこでエラーが起きたか分かりづらくなります。
-B: そうですね。EventBridge側でロジックを分けて、直接新しいラムダを呼び出した方がシンプルです。
-A: 既存のワークステータスラムダに依存する形は避けるべきです。共通処理がそこにあるからという理由かもしれませんが、設計としてもう少しアドバイスが必要ですね。
-C: （笑いながら）Issue番号が「401（Unauthorized）」なのも縁起が悪いですね。
-A: 構成の検討も含めて、この方針で投票に進めたいと思います。他に質問はありますか？
-一同: 大丈夫です。
-こちらの要約に基づいた、依頼元へのフィードバック案の作成など、お手伝いできることはありますか？
-
-会議で議論された懸念点について、音声内容に基づきさらに掘り下げて詳しく解説します。
-主な問題は、**「現状の提案構成が、運用の複雑さを増大させ、システムの透明性を損なっている」**という点に集約されます。
-1. データの不整合とDB依存の増加
- * イベント情報の不足: 本来、EventBridgeから送られてくるメッセージだけで後続の処理が完結するのが理想的ですが、今回のケースではそのデータだけでは「どの処理に分岐させるか」の判断ができません。
- * RDSへの追加クエリ: 分岐条件を判断するために、わざわざRDS（データベース）へユーザーの契約状況や設定を読みに行く必要が生じています。これはイベント駆動型設計としては非効率であり、DBへの負荷や処理遅延を招く懸念があります。
-2. ラムダの多段構成（チェイン）によるリスク
- * エラー特定の困難さ: 既存の「ワークステータスラムダ」からさらに別のラムダを呼び出すような「多段処理」になると、処理の途中でエラーが起きた際の影響範囲が広がり、原因究明が非常に難しくなります。
- * 保守性の低下: 処理が重なることで、システム全体の流れが追いづらくなり、将来的な仕様変更やメンテナンスのコストが増大することが危惧されています。
-3. 「既存コードへの接触回避」が招く不自然な設計
- * 消極的な理由による構成: 参加者は、この構成が選ばれた理由を「既存のラムダ（ワークステータスラムダ）のソースコードを極力いじりたくない、あるいは既存への影響を恐れているためではないか」と推測しています。
- * 設計の妥協: 既存ラムダ内にある「共通処理」を再利用したいという意図があるのかもしれませんが、そのためにアーキテクチャ全体が不自然（ナンセンス）な形になっていることが問題視されました。
-4. 解決策としての提案
- * EventBridgeでの交通整理: 既存のラムダに相乗りするのではなく、EventBridge側のルールで「スマート配送」用と「既存」用を適切にフィルタリングし、それぞれ専用のラムダへ直接配送する構成が推奨されています。
-この詳細な懸念点を踏まえて、**設計変更を依頼するための技術的な論理構成（ドキュメントの下書き）**を作成しましょうか？
-
+```
+項番  追記する備考内容
+────────────────────────────────────────────────────
+1-1   SG-AzureがAzure環境へAPIアクセスするために必要な認証用アプリケーションを作成するため
+1-2   SG-Azureがユーザー情報およびLog Analyticsデータを取得するために必要なAPI権限を付与するため
+1-3   SG-AzureがAzureへOAuth認証するために必要なクライアントシークレットを発行するため
+1-4   各サブスクリプションに分散するソフトウェアデータをLog Analytics経由で一元的に収集するため
+1-5   SG-Azure専用アプリが統合管理サブスクリプションのリソース情報を読み取れるようにするため
+1-6   ソフトウェア情報・プロセス情報・TCPコネクション情報の収集先として必要なため
+      ※AMAを使用しない場合、本設定は不要
+1-7   SG-AzureがAzureからハードウェア構成情報（VM、ネットワーク等）を取得するための接続を作成するため
+1-8   SG-AzureがAzureからソフトウェア情報を取得するための接続を作成するため
+1-9   作成した接続に対して定期的な自動インポートを実行させるため
+2-1   SG-Azure専用アプリが追加サブスクリプションのリソース情報を読み取れるようにするため
+2-2   Change Tracking and Inventory等のAzure機能をサブスクリプション配下のVMに自動適用するため
+3-1   VMにインストールされたソフトウェアおよび構成変更の情報をSG-Azureで収集可能にするため
+3-2   VMのプロセス情報およびTCPコネクション情報をSG-Azureで収集可能にするため
+      ※AMAを使用しない場合、本設定は不要。その場合ソフトウェア情報・TCP情報収集不可
+3-3   SG-AzureがWindows VMに対してRunCommandを実行するために必要な通信経路を確保するため
+4-1   不要なサブスクリプションの構成情報がServiceNow CMDBに取り込まれないようにするため
+      ※Azure側で関連情報を解除すればよい。ServiceNow側での設定変更は特に不要
+6-1   構成情報収集時にエラーが発生していないかを確認し、データ欠損を早期に検知するため
+7-1   エラー発生時のリカバリ方針（差分収集で再実行するか、全量収集で再取得するか）を判断するため
+```
 
 # Dev Repository
 
