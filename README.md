@@ -81,7 +81,44 @@ SG-Azureを使用してAzure環境から構成情報を自動収集するにあ�
   https://learn.microsoft.com/en-us/azure/azure-change-tracking-inventory/change-tracking-inventory-support-matrix
 
 
+```
+■SG-Azureによる自動収集の前提条件
+SG-Azureを使用してAzure環境の構成情報を自動収集する場合、以下の前提条件を満たす必要がある。
 
+【共通の前提条件（ハードウェア情報収集）】
+・Azure側にService Graph Connector専用のアプリ登録（App Registration）が作成されていること
+・専用アプリに対して、対象サブスクリプションの「閲覧者（Reader）」ロールが付与されていること
+・専用アプリに対して、Microsoft Graph API「User.Read」（委任）権限が付与されていること
+・ServiceNow側にSG-Azureストアアプリがインストールされ、ハードウェア接続が構成されていること
+
+【ソフトウェア情報収集の前提条件】
+・Azure Log Analyticsワークスペースが作成されていること
+・専用アプリに対して、Log Analytics API「Data.Read」（委任）権限が付与されていること
+・対象VMにAzure Monitoring Agent (AMA) がインストールされていること
+・「変更履歴とインベントリ（Change Tracking and Inventory）」用のデータ収集ルール（DCR）が構成されていること
+・ServiceNow側にソフトウェア接続が構成されていること
+※AMAが導入されていない場合、ソフトウェアインストール情報の収集は不可となる。
+
+【プロセス・TCP接続情報収集の前提条件】
+・VM insights が有効化されていること
+・「プロセスとTCP接続（Processes and TCP Connections）」用のデータ収集ルール（DCR）が構成されていること
+※AMAおよびVM insightsが導入されていない場合、実行プロセス情報およびTCP接続情報の収集は不可となる。
+
+【Linux VMに関する制約事項】
+・Azure Linux Guest Agentのバージョンが2.4.0.2未満のLinux VMでは、SG-AzureのDeep Discovery（ソフトウェア・プロセス・TCP接続等の詳細収集）データは収集されない。
+　これは、バージョン2.4.0.2未満のLinux VMがAzure RunCommand機能をサポートしていないためである。
+・バージョン2.4.0.2未満のLinux VMから実行プロセス・TCP接続データを収集する場合は、
+　Log Analyticsワークスペースおよび関連するDependencyAgent Azure Monitoring Extensionを使用した代替手段で対応する必要がある。
+
+【注意事項】
+・本手順書の記載内容は、2026年3月1日時点の情報に基づいている。
+・最新の前提条件、対応バージョン、および制約事項については、以下のServiceNow公式ドキュメント（現時点の最新リリースであるWashington DCバージョン）を参照すること。
+　ServiceNow Docs - Service Graph Connector for Microsoft Azure：
+　https://www.servicenow.com/docs/bundle/washingtondc-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-azure.html
+・Azure RunCommand機能のLinux VMサポート要件については、以下のMicrosoft公式ドキュメントを参照すること。
+　Microsoft Learn - Run scripts in a Linux VM using managed Run Commands：
+　https://learn.microsoft.com/en-us/azure/virtual-machines/linux/run-command-managed
+```
 
 
 ```
