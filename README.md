@@ -1,213 +1,220 @@
-
-Azure環境にSG-Azure専用アプリを登録し、構成情報を収集するために必要な認証・権限・基盤を整備するため
-
-SG-Azureにはジョブエラーの自動通知機能がないため、日次ジョブ実行後に手動でエラー有無を確認する必要がある。
-
-1-7～1-9: ServiceNowにAzureとの接続設定を作成し、定期的な自動インポートを有効にするため
-2-1～2-2: 追加サブスクリプションにSG-Azure用の閲覧権限とポリシーを適用するため
-3-1～3-3: VMのソフトウェア・プロセス・TCP情報を収集するための監視エージェントと通信を整備するため
-# SG-Azure 自動収集における前提条件と根拠
-
-本資料の記載内容は **2026年3月1日時点** の情報に基づく。最新情報は各参照先ドキュメントを確認のこと。
+以下のように整理すると、**目的・前提・引継ぎ観点**が明確になり、iNOC担当者向けの引継ぎ内容としてわかりやすいです。
 
 ---
 
-## 前提条件一覧
+# 仮想マシン等のクラウドリソースを手動登録する場合の運用懸念点整理（引継ぎ用）
 
-| # | 分類 | 前提条件 | 根拠 | 備考 |
-|:-:|:----:|---------|:----:|------|
-| 1 | 共通 | Azure AD アプリ登録（App Registration）の作成 | ①②③ | |
-| 2 | 共通 | Microsoft Graph API「User.Read」権限（委任）の付与 | ③ | |
-| 3 | 共通 | 対象サブスクリプションの「閲覧者（Reader）」ロール付与 | ③ | |
-| 4 | 共通 | ServiceNow側 ハードウェア接続の構成 | ①② | |
-| 5 | SW収集 | Azure Log Analytics ワークスペースの作成 | ③⑤ | HW収集のみの場合は不要 |
-| 6 | SW収集 | Log Analytics API「Data.Read」権限（委任）の付与 | ③ | |
-| 7 | SW収集 | Azure Monitoring Agent (AMA) のインストール | ③⑦ | AMA未導入の場合、SW情報収集不可 |
-| 8 | SW収集 | 変更履歴とインベントリ用DCRの構成 | ③ | |
-| 9 | SW収集 | ServiceNow側 ソフトウェア接続の構成 | ①②③ | |
-| 10 | プロセス/TCP | VM insights の有効化（Dependency Agent含む） | ④⑧ | 未導入の場合、プロセス・TCP情報収集不可 |
-| 11 | プロセス/TCP | プロセスとTCP接続用DCRの構成 | ④ | SW用DCR（#8）とは別に必要 |
-| 12 | Linux制約 | Linux Guest Agent 2.4.0.2未満ではDeep Discovery収集不可 | ③⑥ | RunCommand機能が非サポートのため |
-| 13 | Linux制約 | 2.4.0.2未満のVMはLog Analytics＋DependencyAgentで代替 | ③④ | プロセス・TCP接続のみ代替可能 |
+## 1. 目的
+
+仮想マシン等のクラウドリソースについて、**自動収集ではなく手動登録が可能であることを前提**とし、
+ポータル画面からCIの登録・更新申請を行う際に、**運用面で想定される懸念点を整理し、iNOC担当者へ引き継ぐこと**を目的とする。
+
+## 2. 前提
+
+* 対象は AWS / Azure 上の仮想マシン等のクラウドリソースとする
+* Service Graph Connector for Azure/AWS による**自動収集は利用しない前提**
+* CIの登録・更新は、**ポータル画面からの申請を起点に手動で実施する前提**
+* 運用上、iNOC担当者によるメンテナンスや判断が必要となる場面がある
+* 一部論点については、NHK様を含めた関係者確認が必要
+
+## 3. 引継ぎしたい主旨
+
+完全手動登録は実施自体は可能と考えられるが、
+自動収集と比較すると、**CI間の関係性維持、登録粒度の統一、更新追随、セキュリティ運用との整合、運用負荷**などの面で懸念がある。
+そのため、ポータル申請ベースで運用する場合に、事前に認識しておくべき懸念点を整理し、
+今後の運用設計・ルール整備・関係者確認に活用できる状態で引き継ぐ。
 
 ---
 
-## 参照先ドキュメント一覧
+# 4. 既に整理済みの懸念点
 
-| No. | ドキュメント名 | URL |
-|:---:|--------------|-----|
-| ① | ServiceNow Docs - SG-Azure 概要 (Yokohama) | https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-azure.html |
-| ② | ServiceNow Docs - SG-Azure 構成手順 (Yokohama) | https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/task/configure-azure-integration.html |
-| ③ | ServiceNow Community - Azure SGC Version 1.12 | https://www.servicenow.com/community/cmdb-articles/azure-service-graph-connector-version-1-12/ta-p/3308034 |
-| ④ | ServiceNow Community - Azure SGC Version 1.10 | https://www.servicenow.com/community/cmdb-articles/azure-service-graph-connector-version-1-10/ta-p/3079902 |
-| ⑤ | ServiceNow Community - SG-Azure Overview | https://www.servicenow.com/community/cmdb-articles/service-graph-connector-for-azure-overview/ta-p/2301822 |
-| ⑥ | Microsoft Learn - Managed Run Commands (Linux VM) | https://learn.microsoft.com/en-us/azure/virtual-machines/linux/run-command-managed |
-| ⑦ | Microsoft Learn - Azure Monitoring Agent overview | https://learn.microsoft.com/en-us/azure/azure-monitor/agents/azure-monitor-agent-overview |
-| ⑧ | Microsoft Learn - VM insights overview | https://learn.microsoft.com/en-us/azure/azure-monitor/vm/vminsights-overview |
+## 4-1. 誤ってクラウドリソースを登録した際は、iNOC担当者を通じたメンテナンスが必要
 
+### 懸念
 
+手動登録では、誤登録や誤更新が発生した場合に、利用部門だけでは修正が完結せず、
+iNOC担当者を通じたメンテナンスが必要になる可能性がある。
 
+### 想定影響
 
+* 修正完了までに時間を要する
+* 修正依頼の受付・確認・対応フローが必要になる
+* 誤登録が残存すると、CMDBの信頼性が低下する
 
+---
 
+## 4-2. CI Relationships が収集されないため、各CIの関係性がわからない
 
+### 懸念
 
+手動登録では、自動収集時のようなCI Relationshipsが自動生成されないため、
+各CIの依存関係や関連性が十分に表現できない。
 
+### 想定影響
 
+* 依存関係ビューが作成されない
+* 障害時の影響範囲確認が難しくなる
+* 構成把握や変更影響分析の精度が下がる
 
+---
 
+## 4-3. クラウドアカウント内のリソースについてリージョン関係を維持して登録できない
 
+### 懸念
 
+自動収集時はアカウント配下にリージョン単位でリソースが整理されるが、
+手動登録では同様の階層・関係性を維持した登録が難しい。
 
+### 想定影響
 
+* リージョンをまたいだリソースが混在して見える
+* 構成の見通しが悪くなる
+* 自動収集時の管理方針と整合しにくくなる
 
-■SG-Azureによる自動収集の前提条件・制約事項
-SG-Azureを使用してAzure環境から構成情報を自動収集するにあたり、以下の前提条件および制約事項がある。
+---
 
-【Azure側の前提条件】
-1. Microsoft Entra ID（旧Azure AD）にSG-Azure専用のアプリ登録（サービスプリンシパル）が
-   作成されていること。
-   - Microsoft Graph API（User.Read, Delegated）およびLog Analytics API（Data.Read, Delegated）
-     の権限が付与されていること。
-   - 有効なクライアントシークレットが設定されていること（有効期限は最大24か月、
-     本運用では180日ごとにローテーションを実施）。
+## 4-4. 手動登録時の、アプリケーションサービスとクラウドリソースの紐づけ基準について整理が必要
 
-2. 対象サブスクリプションのIAMにおいて、SG-Azure専用アプリに
-   「閲覧者（Reader）」ロールが割り当てられていること。
+### 懸念
 
-3. ソフトウェア情報の収集には、以下の構成が必要である。
-   - Log Analyticsワークスペースが作成されていること。
-   - Azure Monitoring Agent（AMA）が対象仮想マシンにインストールされていること。
-   - Change Tracking and Inventory機能が有効化され、対応するData Collection Rule（DCR）が
-     仮想マシンに関連付けられていること。
-   ※AMAが導入されていない仮想マシンからは、ソフトウェア情報および
-    TCPコネクション情報を収集することができない。
+手動登録時に、アプリケーションサービスとクラウドリソースをどの単位で紐づけるか、基準を事前に整理する必要がある。
 
-4. プロセス情報・TCPコネクション情報の収集には、VM insights（Dependency Agent）の
-   有効化が必要である。
+### 想定される紐づけパターン
 
-【Linux VMに関する制約事項】
-- Linux VMのバージョンが2.4.0.2より古い場合、Azure RunCommand機能が
-  サポートされないため、SG-AzureによるDeep Discoveryデータ
-  （プロセス・TCPコネクション等）の収集ができない。
-  ※当該バージョン未満のLinux VMについては、Log Analyticsワークスペースおよび
-   Dependency Agentを使用した代替方式での収集が可能である。
-- AMAがサポートするLinuxディストリビューションおよびカーネルバージョンに制限がある。
-  詳細はMicrosoft公式ドキュメント「Azure Monitor Agent supported operating systems」
-  を参照すること。
-- Change Tracking拡張機能は、Linuxのハードニング標準をサポートしていない。
+* AWS / Azure アカウント単位で紐づける
+* EC2 / 仮想マシン単位で紐づける
+* アプリケーションサービスに親子関係を作成し、子アプリケーションサービスにEC2 / 仮想マシン単位で紐づける
 
-【ServiceNow側の前提条件】
-- Service Graph Connector for Microsoft Azureプラグイン（ServiceNow Store）が
-  インストールされていること。
-  ※最新版: 1.15.0
-  ※対応プラットフォームバージョン: Zurich, Yokohama, Xanadu, Washington DC,
-   Vancouver, Utah
-- システム管理者権限でログインし、システム言語を英語に設定して作業すること。
+### 想定影響
 
-【その他の注意事項】
-- SG-Azureにはキーローテーション機能および通知機能が組み込まれていないため、
-  クライアントシークレットの有効期限管理は手動で行う必要がある。
-- Change Tracking and Inventoryの有効化により、Azure Monitorおよび
-  Azure Automationに追加料金が発生する場合がある。
-  事前にAzure Monitorの料金体系を確認すること。
-- 日本語・中国語環境のVMでは、Change Tracking拡張機能のSvcNameや
-  SoftwareNameフィールドが文字化けする既知の問題がある
-  （AMA for Windows 1.24.0以降で修正済み）。
+* 紐づけ基準が曖昧だと案件ごとに登録方針がぶれる
+* 構成の見え方が統一されない
+* 自動収集時の管理方針との差異が発生する
 
-※本手順書は2026年3月1日時点の情報に基づいて記載している。
- 最新の前提条件・制約事項・サポート対象については、以下の公式ドキュメント
- （英語版）を参照すること。
+### 補足
 
-- ServiceNow Docs - Service Graph Connector for Microsoft Azure (Yokohama):
-  https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-azure.html
+この点は特に、**NHK様の確認・合意が必要な論点**である。
 
-- ServiceNow Docs - Configure Service Graph Connector for Microsoft Azure (Yokohama):
-  https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/task/configure-azure-integration.html
+---
 
-- ServiceNow Docs - Service Graph Connector for Microsoft Azure Properties (Yokohama):
-  https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/reference/cmdb-sgc-azure-props.html
+## 4-5. クラウドサービスアカウントと紐づかない場合、VR / SIR に影響する可能性がある
 
-- ServiceNow Docs - CMDB classes targeted in Service Graph Connector for Microsoft Azure (Yokohama):
-  https://www.servicenow.com/docs/bundle/yokohama-servicenow-platform/page/product/configuration-management/reference/cmdb-azure-classes.html
+### 懸念
 
-- ServiceNow Store - Service Graph Connector for Microsoft Azure:
-  https://store.servicenow.com/store/app/9fe86b2e1be06a50a85b16db234bcb0a
+AWS / Azure では、クラウドサービスアカウントに設定された設備種別や管理グループの情報を、
+配下のクラウドリソースへ反映するようなBRが実装されている。
+そのため、手動登録した仮想マシン等のクラウドリソースがクラウドサービスアカウントと適切に紐づかない場合、
+VR（Vulnerability Response）やSIR（Security Incident Response）に影響する可能性がある。
 
-- Microsoft Learn - Azure Change Tracking and Inventory (AMA):
-  https://learn.microsoft.com/en-us/azure/azure-change-tracking-inventory/overview-monitoring-agent
+### 想定影響
 
-- Microsoft Learn - Azure Monitor Agent supported operating systems:
-  https://learn.microsoft.com/en-us/azure/azure-monitor/agents/azure-monitor-agent-supported-operating-systems
+* 必要な属性がリソース側へ反映されない可能性がある
+* セキュリティ運用上の分類や管理に支障が出る可能性がある
+* 脆弱性管理・インシデント対応の精度に影響する可能性がある
 
-- Microsoft Learn - Azure Change Tracking and Inventory Support matrix:
-  https://learn.microsoft.com/en-us/azure/azure-change-tracking-inventory/change-tracking-inventory-support-matrix
+---
 
+# 5. 上記以外に考えられる追加の運用懸念点
 
-```
-■SG-Azureによる自動収集の前提条件
-SG-Azureを使用してAzure環境の構成情報を自動収集する場合、以下の前提条件を満たす必要がある。
+## 5-1. リソース増減・変更への追随漏れ
 
-【共通の前提条件（ハードウェア情報収集）】
-・Azure側にService Graph Connector専用のアプリ登録（App Registration）が作成されていること
-・専用アプリに対して、対象サブスクリプションの「閲覧者（Reader）」ロールが付与されていること
-・専用アプリに対して、Microsoft Graph API「User.Read」（委任）権限が付与されていること
-・ServiceNow側にSG-Azureストアアプリがインストールされ、ハードウェア接続が構成されていること
+クラウド環境では、仮想マシン、ディスク、NIC、SG、VPC/VNetなどの追加・削除・変更が日常的に発生する。
+手動登録では、それらを都度CMDBへ反映する必要があり、更新漏れ・削除漏れが発生しやすい。
 
-【ソフトウェア情報収集の前提条件】
-・Azure Log Analyticsワークスペースが作成されていること
-・専用アプリに対して、Log Analytics API「Data.Read」（委任）権限が付与されていること
-・対象VMにAzure Monitoring Agent (AMA) がインストールされていること
-・「変更履歴とインベントリ（Change Tracking and Inventory）」用のデータ収集ルール（DCR）が構成されていること
-・ServiceNow側にソフトウェア接続が構成されていること
-※AMAが導入されていない場合、ソフトウェアインストール情報の収集は不可となる。
+## 5-2. 登録タイミング遅延による情報鮮度の低下
 
-【プロセス・TCP接続情報収集の前提条件】
-・VM insights が有効化されていること
-・「プロセスとTCP接続（Processes and TCP Connections）」用のデータ収集ルール（DCR）が構成されていること
-※AMAおよびVM insightsが導入されていない場合、実行プロセス情報およびTCP接続情報の収集は不可となる。
+申請から登録反映までに時間差が生じるため、CMDB上の情報が実環境に追いつかず、
+最新状態を表せない可能性がある。
 
-【Linux VMに関する制約事項】
-・Azure Linux Guest Agentのバージョンが2.4.0.2未満のLinux VMでは、SG-AzureのDeep Discovery（ソフトウェア・プロセス・TCP接続等の詳細収集）データは収集されない。
-　これは、バージョン2.4.0.2未満のLinux VMがAzure RunCommand機能をサポートしていないためである。
-・バージョン2.4.0.2未満のLinux VMから実行プロセス・TCP接続データを収集する場合は、
-　Log Analyticsワークスペースおよび関連するDependencyAgent Azure Monitoring Extensionを使用した代替手段で対応する必要がある。
+## 5-3. 命名ルール・属性入力ルールのばらつき
 
-【注意事項】
-・本手順書の記載内容は、2026年3月1日時点の情報に基づいている。
-・最新の前提条件、対応バージョン、および制約事項については、以下のServiceNow公式ドキュメント（現時点の最新リリースであるWashington DCバージョン）を参照すること。
-　ServiceNow Docs - Service Graph Connector for Microsoft Azure：
-　https://www.servicenow.com/docs/bundle/washingtondc-servicenow-platform/page/product/configuration-management/concept/cmdb-integration-azure.html
-・Azure RunCommand機能のLinux VMサポート要件については、以下のMicrosoft公式ドキュメントを参照すること。
-　Microsoft Learn - Run scripts in a Linux VM using managed Run Commands：
-　https://learn.microsoft.com/en-us/azure/virtual-machines/linux/run-command-managed
-```
+CI名、表示名、環境区分、用途、オーナー情報などの入力ルールが統一されていない場合、
+担当者ごとに記載ゆれが発生し、検索性や一覧性が低下する。
 
+## 5-4. 重複登録・誤紐づけの発生
 
-```
-項番  追記する備考内容
-────────────────────────────────────────────────────
-1-1   SG-AzureがAzure環境へAPIアクセスするために必要な認証用アプリケーションを作成するため
-1-2   SG-Azureがユーザー情報およびLog Analyticsデータを取得するために必要なAPI権限を付与するため
-1-3   SG-AzureがAzureへOAuth認証するために必要なクライアントシークレットを発行するため
-1-4   各サブスクリプションに分散するソフトウェアデータをLog Analytics経由で一元的に収集するため
-1-5   SG-Azure専用アプリが統合管理サブスクリプションのリソース情報を読み取れるようにするため
-1-6   ソフトウェア情報・プロセス情報・TCPコネクション情報の収集先として必要なため
-      ※AMAを使用しない場合、本設定は不要
-1-7   SG-AzureがAzureからハードウェア構成情報（VM、ネットワーク等）を取得するための接続を作成するため
-1-8   SG-AzureがAzureからソフトウェア情報を取得するための接続を作成するため
-1-9   作成した接続に対して定期的な自動インポートを実行させるため
-2-1   SG-Azure専用アプリが追加サブスクリプションのリソース情報を読み取れるようにするため
-2-2   Change Tracking and Inventory等のAzure機能をサブスクリプション配下のVMに自動適用するため
-3-1   VMにインストールされたソフトウェアおよび構成変更の情報をSG-Azureで収集可能にするため
-3-2   VMのプロセス情報およびTCPコネクション情報をSG-Azureで収集可能にするため
-      ※AMAを使用しない場合、本設定は不要。その場合ソフトウェア情報・TCP情報収集不可
-3-3   SG-AzureがWindows VMに対してRunCommandを実行するために必要な通信経路を確保するため
-4-1   不要なサブスクリプションの構成情報がServiceNow CMDBに取り込まれないようにするため
-      ※Azure側で関連情報を解除すればよい。ServiceNow側での設定変更は特に不要
-6-1   構成情報収集時にエラーが発生していないかを確認し、データ欠損を早期に検知するため
-7-1   エラー発生時のリカバリ方針（差分収集で再実行するか、全量収集で再取得するか）を判断するため
-```
+既存CIの確認不足や識別ミスにより、同一リソースの重複登録や、別リソースへの誤紐づけが発生する可能性がある。
+
+## 5-5. 登録対象範囲のばらつき
+
+仮想マシンのみを登録対象とするのか、ネットワーク・ストレージ・セキュリティ関連CIまで含めるのかが明確でないと、
+案件ごとに登録粒度が変わってしまう。
+
+## 5-6. 監査証跡・変更履歴の管理負荷増大
+
+誰が、いつ、何を根拠に登録・更新・削除したかを明確に残さないと、
+後から変更理由を追跡できず、監査対応や障害調査で負荷が高まる。
+
+## 5-7. 属人化の発生
+
+登録判断や紐づけ方針が担当者依存になると、異動・引継ぎ時に運用品質が下がりやすい。
+特に判断基準が文書化されていない場合、引継ぎ後にルールが崩れやすい。
+
+## 5-8. 大規模環境での運用負荷増大
+
+アカウント数、Subscription数、リージョン数、リソース数が多い環境では、
+手動登録・更新・棚卸に必要な工数が大きくなり、継続運用が重くなる。
+
+## 5-9. 例外運用の増加
+
+案件都合で簡易登録や一部省略が発生すると、標準ルールが徐々に崩れ、
+CMDB全体の一貫性が損なわれる可能性がある。
+
+## 5-10. 障害時・変更時の影響調査精度の低下
+
+CI間の関係や属性が十分でない場合、障害時や変更時に影響範囲を迅速かつ正確に把握しにくくなる。
+
+---
+
+# 6. iNOC担当者へ引き継ぐ際に特に押さえたい観点
+
+## 6-1. 登録・更新・削除の責任分界
+
+* どこまでを申請者が担うか
+* どこからをiNOC担当者が担うか
+* 誤登録時の修正責任をどう整理するか
+
+## 6-2. 登録基準の標準化
+
+* 登録対象CIの範囲
+* 命名ルール
+* 必須属性
+* 紐づけルール
+* 更新・削除の判断基準
+
+## 6-3. 紐づけ方針の明確化
+
+* クラウドサービスアカウントとの紐づけ要否
+* アプリケーションサービスとの紐づけ単位
+* リージョンの扱い
+
+## 6-4. セキュリティ運用との整合
+
+* VR / SIR に必要な属性や関係性が満たせるか
+* BRによる属性反映の前提条件を満たせるか
+* 手動登録時の代替運用が必要か
+
+## 6-5. 継続運用の現実性
+
+* 初期登録だけでなく、更新・棚卸まで含めて運用可能か
+* 大規模環境でも回るルール設計になっているか
+* 属人化しない運用にできるか
+
+---
+
+# 7. 引継ぎメッセージとしてのまとめ案
+
+仮想マシン等のクラウドリソースについて、手動登録そのものは可能と考えられるが、
+自動収集を利用する場合と比べると、**CI関係性の不足、リージョンや階層構造の維持困難、紐づけ基準の整理不足、属性反映やVR/SIRへの影響、更新追随漏れ、運用負荷増大**といった懸念がある。
+
+そのため、ポータル画面からCI登録・更新申請を前提に運用する場合は、
+単に登録できるかどうかだけではなく、**どの粒度で、どの基準で、誰が、どのタイミングで維持管理するか**を明確にした上で運用設計する必要がある。
+本整理は、その前提認識をiNOC担当者へ引き継ぐためのものである。
+
+---
+
+必要であれば次に、これをベースに**「引継ぎ資料向けの、もっと業務文書らしい文体」**へ整えます。
+
 
 # Dev Repository
 
