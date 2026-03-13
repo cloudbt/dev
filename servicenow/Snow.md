@@ -1,4 +1,29 @@
 
+I'll review the uploaded materials carefully to understand the full context of the manual registration concerns, then identify additional operational concerns and create a handover document structure.
+
+Let me first look at the images more closely to make sure I capture all details.Now let me read the SKILL.md for docx creation since we'll need to create a handover document.Now let me create the document. Based on the 6 slides, I have a thorough understanding of the ISM-1323 concerns. Let me analyze and create the document with 10 additional concerns plus the handover document structure.資料を作成しました。以下が追加した懸念点⑥〜⑮の概要です。
+
+**追加10件の懸念点:**
+
+| No. | 懸念事項 | 根拠のポイント |
+|-----|---------|-------------|
+| ⑥ | ライフサイクル管理（廃止・変更時の棚卸し） | ①の派生。自動収集ではDiscoveryが廃止を検知するが手動では不可 |
+| ⑦ | 入力ミス・表記揺れ | ①の「誤登録」から派生。IP/ID等の技術属性は誤入力が検索性に直結 |
+| ⑧ | 申請・承認ワークフローの整備 | パターン①②③で設計が変わり、②③は作業量膨大（資料5,6） |
+| ⑨ | クラウド側構成変更との同期タイミング | ③のリージョン維持不可と同根。手動にはスケジュール同期がない |
+| ⑩ | 大量CI登録時のスケーラビリティ | 資料3の階層構造＋資料5,6の「申請作業量が多い」 |
+| ⑪ | VR/SIR対応漏れリスク | ⑤の具体的影響。セキュリティ対応の漏れ・遅延に直結 |
+| ⑫ | 設備種別・管理グループの手動設定負荷 | ⑤のBR自動反映が手動登録CIでは機能しない |
+| ⑬ | 監査・コンプライアンス（登録履歴の追跡性） | パターン選択により登録構造が異なり事後検証が複雑化 |
+| ⑭ | 自動収集CIと手動登録CIの混在管理 | 資料2④「管理方針が異なってしまう」と明記 |
+| ⑮ | 属人化リスクと引継ぎ負荷 | 資料全体の判断ポイントの多さが暗黙知化リスクに |
+
+**文書の全体構成:**
+1. 背景・経緯 → 2. 前提条件 → 3. 分科会報告済み懸念点①〜⑤ → 4. 追加懸念点⑥〜⑮（詳細+根拠） → 5. 影響度・優先度マトリクス → 6. 対応方針（案） → 7. iNOC様向け引継ぎ事項（未決事項一覧・留意点含む） → 8. 改訂履歴
+
+
+
+
 了解。いまの状況（**Computer IdentityのSQL/ETLをカスタムしている**）を前提に、**アップグレードの実務アドバイス**と、**リーダーさん向け報告文（Teams貼り付け用）**を更新しました。
 
 ---
