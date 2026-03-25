@@ -1,5 +1,69 @@
 
 
+https://www.servicenow.com/community/cmdb-articles/service-graph-connector-for-aws-introduction/ta-p/2300757
+
+
+SG-AWSがどのようにOS情報を取得しているか、公式ドキュメントで確認してみます。根拠となるドキュメントが見つかりました。主にServiceNow Communityの公式記事（SG-AWSの開発チームであるMurali Reddy氏が執筆）から整理します。
+
+---
+
+## 根拠1: SSMが有効でない場合、`cmdb_ci_server`（親クラス）に格納される
+
+**ServiceNow Community - Functional Spec and CI** ([リンク](https://www.servicenow.com/community/cmdb-articles/service-graph-connector-for-aws-functional-spec-and-ci/ta-p/2301845))
+
+> If SSM is enabled, SGC-AWS can populate the server records in cmdb_ci_linux_server, cmdb_ci_win_server. Else it will be populated in cmdb_ci_server.
+
+つまり、SSMが未構成のEC2はOS種別の判別ができず、Linux/Windowsのサブクラスに分類されないまま親クラス `cmdb_ci_server` に入ります。画像のレコードがまさにこの状態です。
+
+---
+
+## 根拠2: OS詳細はSSM SendCommand経由でしか取得できない
+
+**ServiceNow Community - Introduction** ([リンク](https://www.servicenow.com/community/cmdb-articles/service-graph-connector-for-aws-introduction/ta-p/2300757))
+
+> Currently, there is no AWS API available to provide hardware deep discovery details such as serial number, RAM, hard disk, TCP connections, and process information.
+
+OS詳細を含むこれらの情報は、AWS SSMのSendCommand APIでOS固有のコマンドを実行し、S3バケット経由で結果を取得するという仕組みで収集されます。
+
+SSMが動いていなければ、OS情報を取得するAPIが存在しないということが明記されています。
+
+---
+
+## 根拠3: Deep DiscoveryはSSM Documentsの実行が前提
+
+**ServiceNow Community - AWS Service Graph Connector 構成ガイド** ([リンク](https://www.servicenow.com/community/cmdb-articles/aws-service-graph-connector/ta-p/2958151))
+
+> Deep Discovery on your EC2 Instances is achieved through the execution of AWS SSM Documents specific to the Operating System of your EC2 Instances.
+
+Linux向け（`SG-AWS-RunShellScript-Setup.yml`）とWindows向け（`SG-AWS-RunPowerShellScript-Setup.yml`）のCloudFormationテンプレートをデプロイし、SSM Documentを各インスタンスで実行できる状態にして初めてOS情報が取得されます。
+
+---
+
+## 根拠4: SSM Inventoryは全アカウント・全リージョンへの展開が必要
+
+**ServiceNow Community - FAQ** ([リンク](https://www.servicenow.com/community/cmdb-articles/service-graph-connector-for-aws-faq/ta-p/2301015))
+
+> SSM Inventory needs to be set up in all of the account regions you wish to discover.
+
+100アカウント×4リージョンなら400回繰り返す必要があると書かれており、展開漏れが起きやすいことも示唆されています。
+
+---
+
+## まとめ
+
+画像のようにOSが空白で `cmdb_ci_server` に入っているレコードは、**そのEC2インスタンスに対してSSM（SendCommand / Deep Discovery）が有効になっていない**ことが原因です。逆に、OS情報が入っている少数のレコード（Red Hat Enterprise Linux等）は、SSMが正常に構成されているインスタンスということになります。
+
+確認先としては、AWS側でSystems Manager → Fleet Managerのマネージドインスタンス一覧と、ServiceNow側のDiagnostic Toolsの結果を突き合わせるのが確実ですね。
+
+
+
+
+
+
+
+
+
+
 https://www.servicenow.com/community/cmdb-articles/service-graph-connector-for-aws-functional-spec-and-ci/tac-p/2541690/highlight/true#M267
 
 
