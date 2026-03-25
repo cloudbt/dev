@@ -57,7 +57,29 @@ Linux向け（`SG-AWS-RunShellScript-Setup.yml`）とWindows向け（`SG-AWS-Run
 
 
 
+お疲れ様です。
 
+SG-AWSで取り込まれたCMDBデータについて、調査した結果を共有します。
+
+【cmdb_ci_server：OS情報の欠損】
+大半のレコードでOperating Systemが空白になっています。
+原因：AWS Systems Manager（SSM）のDeep Discoveryが未構成のインスタンスでは、OS情報を取得するAPIが存在しないため、空白となります。
+・SSM有効 → OS情報あり（Red Hat Enterprise Linux等が表示）
+・SSM無効 → cmdb_ci_serverに格納、OS空白
+
+根拠：ServiceNow公式コミュニティ記事（SG-AWS Functional Spec）に下記記載あり
+「If SSM is enabled, SGC-AWS can populate the server records in cmdb_ci_linux_server, cmdb_ci_win_server. Else it will be populated in cmdb_ci_server.」
+
+【cmdb_ci_vm_instance：Disk size (GB)の欠損】
+CPUs・Memory・Network adaptersはほぼ全件取得できていますが、Disk size (GB)は大半が空白です。
+原因：一般的なインスタンスタイプ（t3, m5等）のディスクはEBSとして別リソース管理されており、vm_instanceの属性としては反映されません。EBSは別CIクラス（cmdb_ci_storage_volume等）として取り込まれる構造です。
+※インスタンスストア付きタイプ（ix系等）のみDisk sizeに値が入っています。
+
+【対応案】
+・OS欠損 → AWS側でSSM Agent / Deep Discoveryの展開状況を確認
+・Disk欠損 → cmdb_ci_storage_volumeテーブルでEBSが取り込まれているか、リレーションシップが正しいか確認
+
+詳細や参考リンク等、必要であればお知らせください。
 
 
 
