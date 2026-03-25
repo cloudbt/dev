@@ -1,3 +1,14 @@
+
+
+https://www.servicenow.com/community/cmdb-articles/service-graph-connector-for-aws-functional-spec-and-ci/tac-p/2541690/highlight/true#M267
+
+
+SG-AWSで収集されるLinux/WindowsサーバーのNameは、AWSのPrivate DNS Name（ip-x-x-x-x.region.compute.internal形式）がデフォルトで使用されるため、実際のホスト名とは異なるIPアドレス形式で登録される。これはv2.9.1含む現行バージョンの仕様であり、修正予定はない。カスタマイズが必要な場合はETLマッピングで ec2Name フィールドへの変更が可能だが、Discoveryとの重複CI発生リスクに注意が必要。
+
+
+
+
+
 以下のように整理すると、**目的・前提・引継ぎ観点**が明確になり、iNOC担当者向けの引継ぎ内容としてわかりやすいです。
 
 ---
