@@ -1,4 +1,14 @@
 ```
+Subject: SG-AWS - Serverクラスにおけるホスト名 / FQDNの取得について
+
+Description:
+
+Service Graph Connector for AWS（SG-AWS）を使用してAWS環境の構成情報をCMDBに取り込んでいます。
+Serverクラス（cmdb_ci_server / cmdb_ci_linux_server / cmdb_ci_win_server）における
+ホスト名またはFQDNの取得について、以下3点を確認させてください。
+
+
+
 Subject: SG-AWS - Serverクラスにおけるホスト名の格納フィールドについて
 
 Description:
