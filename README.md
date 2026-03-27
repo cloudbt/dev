@@ -1,3 +1,40 @@
+```
+Subject: SG-AWS - Serverクラスにおけるホスト名の格納フィールドについて
+
+Description:
+
+SG-AWS（v2.8.1）を使用してAWS環境の構成情報をCMDBに取り込んでいます。
+Serverクラスのホスト名について確認させてください。
+
+【背景】
+現在の収集結果として、Serverクラス（cmdb_ci_server / linux_server / win_server）のフィールド状況は以下の通りです。
+・Name：Private DNS Name（ip-x-x-x-x形式）が格納済み
+・host_name：空白
+・fqdn：空白
+
+SSM Documentsを確認したところ、Linux・Windowsともにhostnameコマンドで取得していることを確認しました。
+・Linux：hostname | sed 's/^/#HOST#/'
+・Windows：hostname | foreach {"###HOST###"+ $_}
+
+ただし、SSMが有効なEC2のレコードでもhost_name / fqdnは空白のままです。
+
+【質問①】
+SG-AWSによりServerクラスに取り込まれるホスト名情報は、
+どのフィールドに格納される仕様でしょうか。
+（Name / host_name / fqdn / その他）
+また、現在空白となっている原因として考えられることはありますか。
+
+【質問②】
+ホスト名の取得にはSSM Deep Discoveryが有効であることが前提となりますか。
+SSMが有効であってもhost_nameが空白になるケースはありますか。
+
+【環境情報】
+・SG-AWS：v2.8.1
+・ServiceNow：○○
+・SSM Deep Discovery：一部EC2で有効、大半は未構成
+```
+
+
 ご確認・FBありがとうございます。各点について回答します。
 
 ■Disk sizeの証跡追記
