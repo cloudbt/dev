@@ -1,4 +1,73 @@
 
+
+```
+
+お疲れ様です。SG-SCCMの動作について問題を確認しましたのでご報告します。
+
+■ 問題の概要
+SG-SCCMの2インスタンス（general / broadcast）のScheduled Data Importが互いにCIレコードを上書きし合い、Name・Serial number等の属性値が繰り返し変化する現象が発生しています。
+
+■ 発生パターン
+
+【パターン①】NameもSerialも異なる2レコードが存在するケース
+
+初期状態：
+  レコードA（broadcast側で作成）
+    Name: wmrns-f-at03 / Serial: 1117XXXX / System category: Broadcast
+  レコードB（general側で作成）
+    Name: 01620-21-p07 / Serial: IPJ5XXXX / System category: General
+
+発生する動き：
+  ① general側Import実行
+    → レコードAが「Name: 01620-21-p07 / Serial: IPJ5XXXX」に上書きされる
+  ② broadcast側Import実行
+    → レコードAが「Name: wmrns-f-at03 / Serial: 1117XXXX」に戻る
+  ③ 以降 ①②の繰り返し
+
+【パターン②】Serialが同じ・Nameが異なる2レコードが存在するケース
+
+初期状態：
+  レコードA（broadcast側で作成）
+    Name: wmrns-f-at03 / Serial: 11170319 / System category: Broadcast
+  レコードB（general側で作成）
+    Name: 01620-21-p07 / Serial: 11170319 / System category: General
+
+発生する動き：
+  ① general側Import実行
+    → レコードAのNameが「01620-21-p07」に上書きされる
+  ② broadcast側Import実行
+    → レコードAのNameが「wmrns-f-at03」に戻る
+  ③ 以降 ①②の繰り返し（Serialは11170319のまま変わらず）
+
+■ 補足
+・cmdb_ci_computer および親クラス cmdb_ci_hardware の両方でこの現象が発生
+・broadcast側で作成されたレコードのみ影響を受けている
+  （general側で作成されたレコードはgeneral側Importで変更されていない）
+・general / broadcastのScheduled Data Importはいずれも15分間隔で実行
+  ただし、上書きが発生するタイミングは不定期であり、
+  毎回のImport実行時に必ず発生するわけではない
+
+■ 想定される原因
+① IREの誤マッチ
+  IRE（Identification/Reconciliation）ルールにおいて、general側Importが
+  broadcast側のレコードを誤って同一CIとしてマッチし、
+  上書きしている可能性
+
+② ジョブ実行間隔の差異によるデータ不整合
+  general側のデータソースについて、SG-SCCMは一般設備の構成情報を
+  15分間隔で全件収集できないため、以下のように分けて運用している。
+    　15分間隔：it_prod_MCM-SG-SCCM Computer Identity / Network のみ
+    　1日1回（23時）：その他の it_prod_MCM-XXXX ジョブ
+  この収集タイミングの差異により、Computer Identity側が参照する
+  関連データ（他ジョブで収集される属性）がまだ更新されておらず、
+  不完全なデータ状態でIREが誤マッチを起こしている可能性がある
+
+■ 次のアクション
+ServiceNow Supportへ問い合わせを行い、この現象の原因と対策を確認する予定です。
+
+以上、ご確認をお願いいたします。
+```
+
 添付の最新版を確認しました。フロー図もStep 1/Step 2のテーブルも整っていますね。変更点として「クラウドサービスアカウント名」→「クラウドサービスアカウントID値」、Step 2(b)が「アカウントID属性の設定」になっている点も把握しました。
 
 この最新版をベースに、未回復の指摘への回復案を作成します。
