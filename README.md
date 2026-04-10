@@ -1,5 +1,5 @@
 ```
-以下にしたいです。内容を改善して
+件名: SG-SCCM - 2系統のImportジョブ間でCIのName・Serialが繰り返し上書きされる
 
 件名: SG-SCCM - 複数データソース間でCIレコードが交互に上書きされる問題（IRE/Reconciliation）
 ---
