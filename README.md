@@ -1,13 +1,49 @@
-古長さん、おはようございます。3件報告いたします。
+```
+以下にしたいです。内容を改善して
 
-1点目、AWSセットアップの件です。
-今後の対応方針の確認について、Chatで矢田さんへ連携済みです。現在回答待ちの状態です。
+件名: SG-SCCM - 複数データソース間でCIレコードが交互に上書きされる問題（IRE/Reconciliation）
+---
+■ 環境構成
+・製品: SG-SCCM
+・影響テーブル: cmdb_ci_computer, cmdb_ci_hardware
+・SCCM接続: it_prod / ot_prodE の2接続
+・Scheduled Data Importジョブ:
+  - sg_sccm_job_user_general（一般系）
+  - sg_sccm_job_user_broadcast（放送系）
+  - いずれも15分間隔で実行
+・RTEのSG-SCCM Computer IdentityのAfter Scriptで、
+  cmdb_ci_computer.u_system_category が空欄時に general=0 / broadcast=1 を設定
+セgeneral側のデータソースにおけるジョブ実行間隔:
+  - 15分間隔: it_prod_MCM-SG-SCCM Computer Identity / Network のみ
+  - 1日1回（23時）: その他の it_prod_MCM-XXXX ジョブ
+  ※ SG-SCCMは一般設備の構成情報を15分間隔で全件収集できないため、上記のように分けて運用
 
-2点目、タニウムAPIキー更新の件です。
-iNOC側で対応いただいており、APIキーの払い出しは完了しています。現在、ServiceNowへの反映作業中です。
+■ 問題内容
+general側のScheduled Data Importが、broadcast側で作成されたCIレコードを誤って更新し、
+Name・Serial number等の属性値が繰り返し上書きされる現象が発生しています。
+特徴:
+・broadcast側で作成されたレコードのみ影響を受ける（general側のレコードは変更されない）
+・上書きの発生タイミングは不定期（毎回Import時に必ず発生するわけではない）
+・Name・Serial共に異なるケース、Serialが同一でNameのみ異なるケースの両方で発生
 
-3点目、SG-SCCMリソース重複問題の件です。
-調査結果は先ほどChatで古長さんにご連携した通りです。現象自体は把握できましたが、原因と対策はまだ特定できていないため、ServiceNow Supportへ問い合わせを行う予定です。
+発生例:
+    レコードA (broadcast): Name=wmrns-f-at03 / Serial=1117XXXX / System category: Broadcast
+  レコードB (general):   Name=01620-21-p07 / Serial=IPJ5XXXX / System category: General
+  ① general側Import実行 → レコードAがBの値に上書きされる
+　→    レコードA (broadcast):Name=01620-21-p07 / Serial=IPJ5XXXX / System category: Broadcast
+　　★これが問題、同じNameとSerialのレコードが2個存在
+  ② broadcast側Import実行 → レコードAが元の値に戻る
+  ③ 以降 ①②の繰り返し
+
+■ 影響
+・ある時間帯で同一端末に対して複数（2個）CI（同じNameとSerial）が存在
+・CI属性の履歴が汚染され、正確な構成管理が不可
+
+■ 確認したいこと
+上記現象の原因と対策をご確認いただけますと幸いです。
+
+よろしくお願いいたします。
+```
 
 ```
 
