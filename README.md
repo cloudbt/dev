@@ -1,4 +1,8 @@
 ```
+Set-ExecutionPolicy -Scope Process Bypass
+```
+
+```
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
