@@ -90,7 +90,8 @@ $TargetMode = "Tables"
 $InstanceBase = "https://dev317783.service-now.com/now/nav/ui/classic/params/target/"
 
 # 固定のクエリ部分
-$EncodedSuffix = "%3Fsysparm_query%3Ddiscovery_source%253DSG-AWS%26sysparm_first_row%3D1%26sysparm_view%3D"
+# $EncodedSuffix = "%3Fsysparm_query%3Ddiscovery_source%253DSG-AWS%26sysparm_first_row%3D1%26sysparm_view%3D"
+$EncodedSuffix = "%3Fsysparm_query%3Ddiscovery_source%253DSG-AWS%255Esys_updated_onONToday%40javascript%3Ags.beginningOfToday()%40javascript%3Ags.endOfToday()%26sysparm_first_row%3D1%26sysparm_view%3D"
 
 # 一部テーブルだけ URL のクエリ条件が異なる場合の上書き
 $TableUrlOverrides = @{
