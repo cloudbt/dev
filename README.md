@@ -1,33 +1,28 @@
 
 ```
-お疲れ様です。SCCM CI誤更新の件、検証環境での進捗をご報告します。
+**■tanium**
+cmdb_ci_computer.list
+cmdb_ci_disk.list
+cmdb_ci_file_system.list
+cmdb_ci_ip_address.list
+cmdb_ci_network_adapter.list
 
-■ 再現確認（成功）
-検証環境にて、以下の手順で本番と同様の誤更新事象を再現できました。
-① Data Source > Load All Records でデータ取得
-② 中間テーブル（sn_sccm_integrate_sccm_2019_computer_id）上で、あるレコードの ResourceID を別レコードと同一値に手動変更し、ID重複状態を作成
-③ Robust Transform Map を実行
-→ 本番と同様に、別端末の値でCIが上書きされる事象が再現しました。
+cmdb_serial_number.list
+cmdb_sam_sw_install.list
+cmdb_ci_appl.list
+cmdb_running_process.list
+cmdb_tcp.list
 
-この結果、本番MCMへの接続許可をお客様に打診する必要はなくなりました。
+**■SCCM**
+cmdb_ci_computer.list
+cmdb_key_value.list
+cmdb_ci_disk.list
+cmdb_ci_ip_address.list
+cmdb_ci_network_adapter.list
+cmdb_serial_number.list
+cmdb_sam_sw_install.list
 
-■ 修正方向の確認（課題あり）
-次に、重複を解消する方向で以下を実施しました。
-① Data Source > Load All Records でデータ再取得
-② 中間テーブル上の ResourceID および connectionid を手動修正し、他レコードと重複しない値に変更
-③ Robust Transform Map を再実行
-
-結果：
-・Computer テーブルのレコード数は増えていない（新規INSERTは発生していない）
-→ IRE はシリアル番号等の下位識別ルールで既存CIにマッチしていると推測
-・しかし、誤更新で上書きされたCIの Name / Serial number は元の値に復元されなかった
-→ sys_object_source ID が変わったことで、IRE が既存CIの属性値を上書き更新しない挙動になっている可能性
-
-■ 次のアクション
-古い sys_object_source レコード（旧connectionidベースのID）が残っていることで、IRE が属性更新をブロックしている可能性があります。
-次のステップとして、汚染済みCIに紐づく古い sys_object_source レコードを削除した上で RTE を再実行し、属性値が正しく復元されるか検証します。
-
-方針についてご意見があればお願いします。
+sn_sccm_integrate_sccm_2019_computer_related.list
 ```
 
 
