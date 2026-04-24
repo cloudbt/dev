@@ -1,4 +1,247 @@
+Group by が直接できないのは ServiceNow の標準リスト画面の制約ですが、いくつか別の方法で同じ目的を達成できます。順番に提示します。
 
+---
+
+## ■ まず重要な発見：画像から判明した追加事実
+
+画像をよく見ると、`Target table` 列に以下のバリエーションがあります：
+
+| Target table | 役割 |
+|-------------|------|
+| `Software Installation [cmdb_sam_sw_install]` | ソフトウェアインストール |
+| `Serial Number [cmdb_serial_number]` | シリアル番号エンティティ |
+| `Key Value [cmdb_key_value]` | キーバリュー（属性） |
+| `Computer [cmdb_ci_computer]` | **PC本体のCI** ← これが本命 |
+
+11万件のうち、**真に問題なのは `Computer [cmdb_ci_computer]` ターゲットのレコード**です。残り（Serial Number, Software Installation, Key Value）は付随データであり、CI誤上書きの直接原因ではありません。
+
+これは前回の回答からさらに絞り込みできることを意味します。
+
+---
+
+## ■ 重複target_sys_id 特定方法（複数案）
+
+### 方法1: フィルタを Computer のみに絞る（最優先で実施）
+
+まず、現在の検索条件を以下のように追加してください:
+
+```
+Filter: 
+- Name = SG-SCCM
+- ID contains 03066860c7122010b56243ac95c26027
+- Target table = Computer [cmdb_ci_computer]    ← 追加
+```
+
+これにより 11万件 → おそらく **数千〜1万件程度** に絞れるはずです。残った件数が「Computer CI に対する Source Native Key の総数」です。
+
+正常な状態であれば、PC1台につき1件のはずなので、この件数が **管理対象PC台数とほぼ一致** すれば汚染は限定的、**大幅に超過** していれば重複が広範に存在することを意味します。
+
+### 方法2: List View での簡易確認
+
+絞り込み後の Computer ターゲットレコードに対し:
+
+1. `target_sys_id` 列でリストをソート
+2. 同じ target_sys_id が連続して並ぶ箇所を目視確認（スクロール）
+3. 重複が見つかれば、そのレコード ID 列の構造を比較
+   - 例: `4201931||16778341||03066860...` と `62144729H||16778341||03066860...` が同じ target_sys_id を指していれば、それが汚染レコード
+
+ただし数千件あると目視は厳しいです。
+
+### 方法3: バックグラウンドスクリプトでの集計（推奨）
+
+ServiceNow の **Scripts - Background**（`/sys.scripts.do`）で簡易な GlideAggregate スクリプトを実行する方法です。読み取り専用なので安全です。
+
+```javascript
+// 重複target_sys_idを集計するスクリプト（読み取り専用）
+var ga = new GlideAggregate('sys_object_source');
+ga.addQuery('name', 'SG-SCCM');
+ga.addQuery('id', 'CONTAINS', '03066860c7122010b56243ac95c26027');
+ga.addQuery('target_table', 'cmdb_ci_computer');
+ga.addAggregate('COUNT', 'target_sys_id');
+ga.groupBy('target_sys_id');
+ga.addHaving('COUNT', 'target_sys_id', '>', 1);
+ga.query();
+
+var count = 0;
+var output = [];
+while (ga.next()) {
+    count++;
+    output.push(ga.getValue('target_sys_id') + ' : ' + ga.getAggregate('COUNT', 'target_sys_id') + '件');
+}
+gs.print('重複target_sys_idの件数: ' + count);
+gs.print('---詳細---');
+output.forEach(function(line) { gs.print(line); });
+```
+
+**実行手順:**
+1. ナビゲーションから `Scripts - Background` を開く
+2. 上記スクリプトを貼り付け
+3. **Cancel execution** チェックボックスを確認（読み取りのみのため不要だが念のため確認）
+4. **Run script** をクリック
+5. 出力結果が画面下部に表示される
+
+**注意:** 本番環境で実行する前に、必ず **読み取りのみ**であることを再確認してください。`gr.update()` や `gr.deleteRecord()` を含まなければ、データは一切変更されません。上記スクリプトはGlideAggregateで集計のみのため安全です。
+
+### 方法4: cmdb_ci_computer 側からの逆引き（補助）
+
+別の角度から確認する方法です:
+
+```javascript
+// Computer CI ごとに、関連する SG-SCCM source エントリ数を確認
+var ga = new GlideAggregate('sys_object_source');
+ga.addQuery('name', 'SG-SCCM');
+ga.addQuery('target_table', 'cmdb_ci_computer');
+ga.addAggregate('COUNT', 'target_sys_id');
+ga.groupBy('target_sys_id');
+ga.addHaving('COUNT', 'target_sys_id', '>', 1);
+ga.query();
+
+gs.print('SG-SCCM全体で、複数source native keyを持つCI数: ' + ga.getRowCount());
+
+// 上位件数のCIを確認
+var details = [];
+while (ga.next() && details.length < 20) {
+    details.push(ga.getValue('target_sys_id') + ' : ' + ga.getAggregate('COUNT', 'target_sys_id') + '件');
+}
+gs.print('---上位20件---');
+details.forEach(function(line) { gs.print(line); });
+```
+
+これは「03066860... に限らず、SG-SCCM 全体で重複しているCI」を見ます。汚染Connection IDだけでなく他にも重複問題がないかの広域確認になります。
+
+---
+
+## ■ 真の被害CIリストの作成方法
+
+重複 target_sys_id が特定できたら、それらの target_sys_id を `cmdb_ci_computer` で検索することで被害CIリストになります。
+
+### 手順1: 重複 target_sys_id のリスト出力
+
+上記スクリプトを拡張して、target_sys_id をカンマ区切りで出力:
+
+```javascript
+var ga = new GlideAggregate('sys_object_source');
+ga.addQuery('name', 'SG-SCCM');
+ga.addQuery('id', 'CONTAINS', '03066860c7122010b56243ac95c26027');
+ga.addQuery('target_table', 'cmdb_ci_computer');
+ga.addAggregate('COUNT', 'target_sys_id');
+ga.groupBy('target_sys_id');
+ga.addHaving('COUNT', 'target_sys_id', '>', 1);
+ga.query();
+
+var sysIds = [];
+while (ga.next()) {
+    sysIds.push(ga.getValue('target_sys_id'));
+}
+
+gs.print('被害CI候補件数: ' + sysIds.length);
+gs.print('---sys_id list (filter用)---');
+gs.print(sysIds.join(','));
+```
+
+### 手順2: cmdb_ci_computer での確認
+
+スクリプトの出力結果（カンマ区切りのsys_id文字列）を使って、`cmdb_ci_computer` のリストフィルタで:
+
+```
+Filter: sys_id IS ONE OF [上記スクリプトの出力をペースト]
+```
+
+これで **被害CIの全リスト** が画面表示されます。
+
+### 手順3: Excelエクスポートして詳細分析
+
+被害CIリストを右クリック → Export → Excel で出力。以下の列を含めると分析しやすい:
+
+- Name
+- Serial number
+- Sys created on
+- Sys created by
+- Sys updated on
+- Sys updated by
+- Discovery source
+- Login ID
+- Manufacturer
+- Model ID
+
+特に **`sys_created_by` と `sys_updated_by` が異なるユーザ** （例: 作成は `sg_sccm_job_user_broadcast`、更新は `sg_sccm_job_user_general`）になっているCIが、典型的なクロス上書き被害CIです。
+
+### 手順4: Activity履歴での詳細確認（個別CI単位）
+
+被害CIの中から代表的な数件を選び、Activity / Field changes 履歴を開いて:
+- いつ最初に作成されたか
+- どのインスタンスのジョブが作ったか
+- いつ別インスタンスのジョブによって上書きされたか
+- 上書き前後の値の差分
+
+を時系列で確認。これがサブプロ検証時のテストケースになります。
+
+---
+
+## ■ 別の重要な確認: cmdb_ci_hardware についても同様に
+
+`cmdb_ci_computer` は `cmdb_ci_hardware` を継承しているため、`target_table = cmdb_ci_hardware` の sys_object_source エントリも別途存在します。同じスクリプトで `target_table = 'cmdb_ci_hardware'` に変更して実行し、重複を確認してください。
+
+```javascript
+// cmdb_ci_hardware 版
+var ga = new GlideAggregate('sys_object_source');
+ga.addQuery('name', 'SG-SCCM');
+ga.addQuery('id', 'CONTAINS', '03066860c7122010b56243ac95c26027');
+ga.addQuery('target_table', 'cmdb_ci_hardware');     // ← ここを変更
+ga.addAggregate('COUNT', 'target_sys_id');
+ga.groupBy('target_sys_id');
+ga.addHaving('COUNT', 'target_sys_id', '>', 1);
+ga.query();
+
+gs.print('cmdb_ci_hardware側 重複件数: ' + ga.getRowCount());
+```
+
+---
+
+## ■ 重要な事前確認事項
+
+スクリプト実行前に以下を確認してください:
+
+1. **本番環境での Background Script 実行権限**
+   - admin ロールが必要
+   - 一部の組織ではセキュリティポリシー上、本番Background Script実行に承認が必要な場合あり
+
+2. **実行時の負荷**
+   - 11万件規模のGlideAggregateは数秒〜数十秒かかる可能性
+   - 業務時間外や負荷の低い時間帯での実行が望ましい
+
+3. **代替案: Reports機能**
+   - Background Scriptが使えない環境であれば、Reports（`/sys_report.do`）で:
+     - Source table: sys_object_source
+     - Type: Bar / List
+     - Group by: target_sys_id
+     - Aggregation: COUNT
+     - Filter: 上記と同じ
+   - これでもGUIで集計可能
+
+---
+
+## ■ 期待される結果と次のアクション
+
+実行結果の数字によって、次のステップが変わります:
+
+| 重複target_sys_id件数 | 状況 | 次のアクション |
+|---------------------|------|--------------|
+| 0件 | 汚染なし。誤上書きの真因は別の可能性 | 再分析必要 |
+| 1〜数十件 | 限定的な汚染 | 個別CI単位で対処、サブプロ検証は短期間で可能 |
+| 数百件 | 中規模汚染 | 標準的な復旧フロー、サブプロ検証推奨 |
+| 数千件以上 | 広範な汚染 | 復旧計画を厚めに、HI Support巻き込み検討 |
+
+---
+
+## ■ まとめ
+
+1. まず **target_table = `cmdb_ci_computer` でフィルタを追加** して件数を確認（GUI操作のみ）
+2. その上で **Background Script の方法3** で重複 target_sys_id を集計（最も確実）
+3. 出力された sys_id リストで cmdb_ci_computer をフィルタ → 被害CIリスト確定
+4. `cmdb_ci_hardware` についても同様に確認
+
+スクリプト実行結果が分かりましたら、件数に応じて具体的な復旧計画に進みましょう。Background Script の実行が運用上難しい場合は、お知らせいただければ Reports 機能や別のGUIベースの方法もご案内します。
 ```
 **■tanium**
 cmdb_ci_computer.list
