@@ -1,4 +1,437 @@
 
+はい。洗い出しは **`sys_object_source` を中心に見る**のが一番早いです。
+見るべきパターンはこの2つです。
+
+```text
+A. it_prod の ResourceID|旧connectionid が broadcast CI を向いている
+B. 複数 ResourceID が同じ target_sys_id を向いている
+```
+
+以下の Script は **読み取り専用** です。更新・削除はしません。
+
+---
+
+## 事前に用意する値
+
+本番環境の値に置き換えてください。
+
+```javascript
+var OLD_CONN = '03066860c7122010b56243ac95c26027'; // 旧・共通connectionid
+var IT_DS_NAME = 'it_prod-SG-SCCM Computer Identity';
+var BROADCAST_USER = 'sg_sccm_job_user_broadcast';
+```
+
+---
+
+## Script 1：it_prod ResourceID が broadcast CI を向いているものを洗い出す
+
+これは、直近の `it_prod-SG-SCCM Computer Identity` の Import Set Row から ResourceID を取得し、その `ResourceID|旧connectionid` が **broadcast 作成CI** を向いていないか確認します。
+
+```javascript
+(function () {
+  var SOURCE_NAME = 'SG-SCCM';
+
+  // ★本番値に変更
+  var OLD_CONN = '03066860c7122010b56243ac95c26027';
+  var IT_DS_NAME = 'it_prod-SG-SCCM Computer Identity';
+  var BROADCAST_USER = 'sg_sccm_job_user_broadcast';
+
+  // 調査対象期間。必要に応じて調整
+  var IMPORT_ROW_START = '2026-04-20 00:00:00';
+
+  var IMPORT_TABLE = 'sn_sccm_integrate_sccm_2019_computer_id';
+
+  function log(msg) {
+    gs.info('[SG-SCCM SCAN A] ' + msg);
+  }
+
+  function warn(msg) {
+    gs.warn('[SG-SCCM SCAN A] ' + msg);
+  }
+
+  function getFirstValue(gr, fields) {
+    for (var i = 0; i < fields.length; i++) {
+      if (gr.isValidField(fields[i])) {
+        return gr.getValue(fields[i]) || '';
+      }
+    }
+    return '';
+  }
+
+  function getCiInfo(sysId) {
+    var ci = new GlideRecord('cmdb_ci');
+    if (!ci.get(sysId)) {
+      return {
+        exists: false,
+        sys_id: sysId,
+        created_by: '',
+        name: '',
+        host_name: '',
+        ip: '',
+        serial: '',
+        class_name: ''
+      };
+    }
+
+    return {
+      exists: true,
+      sys_id: ci.getUniqueValue(),
+      class_name: ci.getValue('sys_class_name'),
+      name: ci.getValue('name'),
+      host_name: ci.getValue('host_name'),
+      ip: ci.getValue('ip_address'),
+      serial: ci.getValue('serial_number'),
+      created_by: ci.getValue('sys_created_by'),
+      updated_by: ci.getValue('sys_updated_by')
+    };
+  }
+
+  // 1. it_prod の直近 Import Row から ResourceID を集める
+  var itResources = {};
+
+  var row = new GlideRecord(IMPORT_TABLE);
+  row.addQuery('sys_created_on', '>=', IMPORT_ROW_START);
+
+  // Data Source 名で it_prod の Computer Identity に限定
+  // 環境により dot-walk が効かない場合は、Import Set number 指定方式に変更してください。
+  row.addQuery('sys_import_set.data_source.name', 'CONTAINS', IT_DS_NAME);
+
+  row.query();
+
+  while (row.next()) {
+    var resourceId = getFirstValue(row, [
+      'u_resourceid',
+      'u_resource_id',
+      'resourceid',
+      'resource_id'
+    ]);
+
+    if (!resourceId) {
+      continue;
+    }
+
+    itResources[resourceId] = {
+      resourceId: resourceId,
+      import_name: getFirstValue(row, ['u_name', 'name']),
+      import_connectionid: getFirstValue(row, ['u_connectionid', 'connectionid', 'connection_id']),
+      import_bios: getFirstValue(row, ['u_biosserialnumber', 'u_bios_serial_number', 'biosserialnumber']),
+      import_system_serial: getFirstValue(row, ['u_systemserialnumber', 'u_system_serial_number', 'systemserialnumber']),
+      import_chassis_serial: getFirstValue(row, ['u_chassisserialnumber', 'u_chassis_serial_number', 'chassisserialnumber']),
+      row_sys_id: row.getUniqueValue(),
+      row_created: row.getValue('sys_created_on')
+    };
+  }
+
+  log('it_prod resource count=' + Object.keys(itResources).length);
+
+  // 2. ResourceID|旧connectionid の sys_object_source を確認
+  for (var rid in itResources) {
+    var key = rid + '|' + OLD_CONN;
+
+    var sos = new GlideRecord('sys_object_source');
+    sos.addQuery('name', SOURCE_NAME);
+    sos.addQuery('id', key);
+    sos.query();
+
+    while (sos.next()) {
+      var targetSysId = sos.getValue('target_sys_id');
+      var ci = getCiInfo(targetSysId);
+
+      var isBroadcastCreated = ci.created_by === BROADCAST_USER;
+
+      var line =
+        'resourceId=' + rid +
+        '|source_id=' + sos.getValue('id') +
+        '|source_sys_id=' + sos.getUniqueValue() +
+        '|target_sys_id=' + targetSysId +
+        '|target_class=' + ci.class_name +
+        '|target_name=' + ci.name +
+        '|target_host_name=' + ci.host_name +
+        '|target_ip=' + ci.ip +
+        '|target_serial=' + ci.serial +
+        '|target_created_by=' + ci.created_by +
+        '|import_name=' + itResources[rid].import_name +
+        '|import_bios=' + itResources[rid].import_bios;
+
+      if (isBroadcastCreated) {
+        warn('PROBLEM|IT_OLD_SOURCE_POINTS_TO_BROADCAST_CI|' + line);
+      } else {
+        log('CHECK|IT_OLD_SOURCE|' + line);
+      }
+    }
+  }
+
+  log('DONE');
+})();
+```
+
+### この Script の結果で見るもの
+
+ログに以下が出たら、対象です。
+
+```text
+PROBLEM|IT_OLD_SOURCE_POINTS_TO_BROADCAST_CI
+```
+
+その行に以下が出ます。
+
+```text
+resourceId
+source_id
+source_sys_id
+target_sys_id
+target_name
+target_host_name
+target_serial
+target_created_by
+import_name
+```
+
+これが、**it_prod の ResourceID が broadcast CI を向いている候補**です。
+
+---
+
+## Script 2：複数 ResourceID が同じ target_sys_id を向いているものを洗い出す
+
+これは `sys_object_source` の Identity Source だけを見ます。
+Serial Number や `ComputerRelatedOU` は除外します。
+
+```javascript
+(function () {
+  var SOURCE_NAME = 'SG-SCCM';
+
+  // ★本番値に変更
+  var OLD_CONN = '03066860c7122010b56243ac95c26027';
+
+  // SQL修正後の connectionid が分かっていれば追加してください
+  var CONNECTION_IDS = [
+    OLD_CONN
+    // ,'it_prod用の新connectionid'
+    // ,'ot_prodE用の新connectionid'
+  ];
+
+  function log(msg) {
+    gs.info('[SG-SCCM SCAN B] ' + msg);
+  }
+
+  function warn(msg) {
+    gs.warn('[SG-SCCM SCAN B] ' + msg);
+  }
+
+  function getCiInfo(sysId) {
+    var ci = new GlideRecord('cmdb_ci');
+    if (!ci.get(sysId)) {
+      return 'CI_NOT_FOUND:' + sysId;
+    }
+
+    return 'class=' + ci.getValue('sys_class_name') +
+      '|name=' + ci.getValue('name') +
+      '|host_name=' + ci.getValue('host_name') +
+      '|ip=' + ci.getValue('ip_address') +
+      '|serial=' + ci.getValue('serial_number') +
+      '|created_by=' + ci.getValue('sys_created_by') +
+      '|updated_by=' + ci.getValue('sys_updated_by');
+  }
+
+  function isIdentitySourceId(sourceId, conn) {
+    // Computer Identity 本体のみ対象
+    // 例: 16777219|connectionid
+    // 除外:
+    // 16777219|connectionid|ComputerRelatedOU
+    // VMware-xxx||BIOS||16777219||connectionid
+    var parts = sourceId.split('|');
+
+    if (parts.length !== 2) {
+      return false;
+    }
+
+    if (parts[1] !== conn) {
+      return false;
+    }
+
+    return /^\d+$/.test(parts[0]);
+  }
+
+  for (var c = 0; c < CONNECTION_IDS.length; c++) {
+    var conn = CONNECTION_IDS[c];
+
+    var targetMap = {};
+    var keyMap = {};
+
+    var gr = new GlideRecord('sys_object_source');
+    gr.addQuery('name', SOURCE_NAME);
+    gr.addQuery('id', 'CONTAINS', '|' + conn);
+    gr.orderBy('target_sys_id');
+    gr.orderBy('id');
+    gr.query();
+
+    while (gr.next()) {
+      var sourceId = gr.getValue('id');
+
+      if (!isIdentitySourceId(sourceId, conn)) {
+        continue;
+      }
+
+      var resourceId = sourceId.split('|')[0];
+      var targetSysId = gr.getValue('target_sys_id');
+
+      if (!targetMap[targetSysId]) {
+        targetMap[targetSysId] = {};
+      }
+
+      if (!targetMap[targetSysId][resourceId]) {
+        targetMap[targetSysId][resourceId] = [];
+      }
+
+      targetMap[targetSysId][resourceId].push({
+        source_sys_id: gr.getUniqueValue(),
+        id: sourceId,
+        created_on: gr.getValue('sys_created_on'),
+        created_by: gr.getValue('sys_created_by'),
+        updated_by: gr.getValue('sys_updated_by')
+      });
+
+      if (!keyMap[sourceId]) {
+        keyMap[sourceId] = [];
+      }
+
+      keyMap[sourceId].push({
+        source_sys_id: gr.getUniqueValue(),
+        target_sys_id: targetSysId
+      });
+    }
+
+    log('===== connectionid=' + conn + ' =====');
+
+    // 1. 複数 ResourceID が同じ target_sys_id を向いているか
+    for (var target in targetMap) {
+      var rids = [];
+
+      for (var rid in targetMap[target]) {
+        rids.push(rid);
+      }
+
+      if (rids.length > 1) {
+        warn('PROBLEM|MULTI_RESOURCE_SAME_CI' +
+          '|connectionid=' + conn +
+          '|target_sys_id=' + target +
+          '|resourceIds=' + rids.join(',') +
+          '|target_info=' + getCiInfo(target));
+
+        for (var i = 0; i < rids.length; i++) {
+          var list = targetMap[target][rids[i]];
+          for (var j = 0; j < list.length; j++) {
+            warn('DETAIL|MULTI_RESOURCE_SAME_CI' +
+              '|resourceId=' + rids[i] +
+              '|source_sys_id=' + list[j].source_sys_id +
+              '|source_id=' + list[j].id +
+              '|target_sys_id=' + target +
+              '|source_created_on=' + list[j].created_on +
+              '|source_created_by=' + list[j].created_by +
+              '|source_updated_by=' + list[j].updated_by);
+          }
+        }
+      }
+    }
+
+    // 2. 同じ ResourceID|connectionid の source が複数件あるか
+    for (var sourceKey in keyMap) {
+      if (keyMap[sourceKey].length > 1) {
+        warn('PROBLEM|DUPLICATE_SOURCE_KEY' +
+          '|connectionid=' + conn +
+          '|source_id=' + sourceKey +
+          '|count=' + keyMap[sourceKey].length);
+
+        for (var k = 0; k < keyMap[sourceKey].length; k++) {
+          warn('DETAIL|DUPLICATE_SOURCE_KEY' +
+            '|source_id=' + sourceKey +
+            '|source_sys_id=' + keyMap[sourceKey][k].source_sys_id +
+            '|target_sys_id=' + keyMap[sourceKey][k].target_sys_id +
+            '|target_info=' + getCiInfo(keyMap[sourceKey][k].target_sys_id));
+        }
+      }
+    }
+  }
+
+  log('DONE');
+})();
+```
+
+### この Script の結果で見るもの
+
+対象はこの2つです。
+
+```text
+PROBLEM|MULTI_RESOURCE_SAME_CI
+PROBLEM|DUPLICATE_SOURCE_KEY
+```
+
+特に重要なのは：
+
+```text
+PROBLEM|MULTI_RESOURCE_SAME_CI
+```
+
+これが出た場合、まさに
+
+```text
+複数 ResourceID が同じ target_sys_id を向いている
+```
+
+状態です。
+
+---
+
+## UIだけで簡単に見る方法
+
+Script が使いにくい場合は、`sys_object_source.list` で以下の条件を入れて Export してもよいです。
+
+```text
+Name is SG-SCCM
+ID contains |03066860c7122010b56243ac95c26027
+ID does not contain ||
+ID does not contain |ComputerRelatedOU
+```
+
+列は最低限これを出してください。
+
+```text
+ID
+Target sys ID
+Target
+Created by
+Updated by
+Created
+Updated
+```
+
+Excel に出して、`Target sys ID` でピボットし、`ID` の ResourceID 数を数えれば、
+
+```text
+複数 ResourceID → 同一 target_sys_id
+```
+
+が見つかります。
+
+---
+
+## まず見るべき結果
+
+本番で最初に見るのはこの2つです。
+
+```text
+PROBLEM|IT_OLD_SOURCE_POINTS_TO_BROADCAST_CI
+PROBLEM|MULTI_RESOURCE_SAME_CI
+```
+
+この2つに出た `ResourceID` と `target_sys_id` が、最初の復旧候補になります。
+
+
+
+
+
+
+
 確認しました。結論から言うと、**`sys_object_source` の主な紐付けは直っていますが、Computer Identity の再Import後に `sys_object_source` の重複行が再作成されています。**
 そのため、まだ「根本原因が完全に解消した」とは言えません。
 
