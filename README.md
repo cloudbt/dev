@@ -1,3 +1,261 @@
+
+確認しました。結論から言うと、**`sys_object_source` の主な紐付けは直っていますが、Computer Identity の再Import後に `sys_object_source` の重複行が再作成されています。**
+そのため、まだ「根本原因が完全に解消した」とは言えません。
+
+## 画面3の状態
+
+現在、主要な紐付けはこうなっています。
+
+```text
+16777219|d87b46b72b6fd210ca31faac6e91bf43
+  → target_sys_id = 1eff87c693775a901829fca97bba1027
+
+16777220|d87b46b72b6fd210ca31faac6e91bf43
+  → target_sys_id = 9eff87c693775a901829fca97bba100d
+```
+
+ここだけ見ると正しいです。
+
+ただし、再Import後に以下のような同じ `id` の `sys_object_source` が複数作成されています。
+
+```text
+16777219|d87b46b72b6fd210ca31faac6e91bf43 → 複数件
+16777220|d87b46b72b6fd210ca31faac6e91bf43 → 複数件
+```
+
+つまり、**Import を実行すると、また `sys_object_source` が増えています。**
+
+---
+
+## 今の段階で分かること
+
+今回、`sys_object_source` の target は一応正しい方向を向いています。
+それでも CI の Name / Serial が戻らないなら、次のどれかです。
+
+### 可能性1：最新の Import Set Row 自体が実は正しくない
+
+以前の Import Set は正しかったとしても、**今回実行した ISET0016151 の中身**を確認する必要があります。
+
+画面では Computer Identity の再Import結果が：
+
+```text
+Total = 98
+Updates = 2
+```
+
+になっています。
+
+対象2台だけに絞ったつもりであれば、`Total = 2` になるのが自然です。
+`Total = 98` なので、今回の再Importは対象2台限定ではなく、広い範囲で動いている可能性があります。
+
+まず ISET0016151 の中で、`16777219` と `16777220` がどの値で入っているか確認してください。
+
+---
+
+### 可能性2：Transform / IRE が Name / Serial を更新していない
+
+Import Set が正しくても、IRE / Reconciliation / Transform 側で `name` や `serial_number` が実際には更新されていない可能性があります。
+
+この場合、CI側の値は壊れたまま残ります。
+
+---
+
+### 可能性3：別の SG-SCCM Job がすぐ上書きしている
+
+画面上の Data Source が今回は `ot_stg-SG-SCCM Computer Identity` になっています。
+以前の話では `ot_prodE` でした。
+
+もし `ot_stg` / `ot_prodE` / `it_prod` など複数の Scheduled Import が残っていると、正しく戻した直後に別ジョブが再度上書きする可能性があります。
+
+---
+
+## まず次に確認するべきこと
+
+### 1. 最新 Import Set `ISET0016151` の中身を確認
+
+このスクリプトで、今回の Import Set に入った2台の値を確認してください。
+
+```javascript
+(function () {
+  var IMPORT_SET_NUMBER = 'ISET0016151';
+  var RESOURCE_IDS = ['16777219', '16777220'];
+
+  var set = new GlideRecord('sys_import_set');
+  set.addQuery('number', IMPORT_SET_NUMBER);
+  set.query();
+
+  if (!set.next()) {
+    gs.info('Import Set not found: ' + IMPORT_SET_NUMBER);
+    return;
+  }
+
+  var gr = new GlideRecord('sn_sccm_integrate_sccm_2019_computer_id');
+  gr.addQuery('sys_import_set', set.getUniqueValue());
+  gr.addQuery('u_resourceid', 'IN', RESOURCE_IDS.join(','));
+  gr.orderBy('u_resourceid');
+  gr.orderBy('sys_created_on');
+  gr.query();
+
+  var count = 0;
+  while (gr.next()) {
+    count++;
+    gs.info(
+      'row=' + gr.getUniqueValue() +
+      ', resourceid=' + gr.getValue('u_resourceid') +
+      ', connectionid=' + gr.getValue('u_connectionid') +
+      ', name=' + gr.getValue('u_name') +
+      ', bios=' + gr.getValue('u_biosserialnumber') +
+      ', systemSerial=' + gr.getValue('u_systemserialnumber') +
+      ', chassisSerial=' + gr.getValue('u_chassisserialnumber') +
+      ', ip=' + gr.getValue('u_ipaddress') +
+      ', mac=' + gr.getValue('u_macaddress') +
+      ', created=' + gr.getValue('sys_created_on')
+    );
+  }
+
+  gs.info('matched rows=' + count);
+})();
+```
+
+ここで期待する結果は：
+
+```text
+16777219 → edr-sot-i-dp01 / 正しい Serial / 正しい IP
+16777220 → edr-sot-i-ps01 / 正しい Serial / 正しい IP
+```
+
+です。
+
+もし `16777220` の row も `edr-sot-i-dp01` になっていたら、**ServiceNow側ではなく SQL / Import Set 側の問題**です。
+
+---
+
+### 2. ResourceIDごとの重複 row を確認
+
+同じ Import Set 内で、同じ ResourceID が複数行入っていないかも確認してください。
+
+```javascript
+(function () {
+  var IMPORT_SET_NUMBER = 'ISET0016151';
+
+  var set = new GlideRecord('sys_import_set');
+  set.addQuery('number', IMPORT_SET_NUMBER);
+  set.query();
+
+  if (!set.next()) {
+    gs.info('Import Set not found: ' + IMPORT_SET_NUMBER);
+    return;
+  }
+
+  var ga = new GlideAggregate('sn_sccm_integrate_sccm_2019_computer_id');
+  ga.addQuery('sys_import_set', set.getUniqueValue());
+  ga.addQuery('u_resourceid', 'IN', '16777219,16777220');
+  ga.groupBy('u_resourceid');
+  ga.groupBy('u_name');
+  ga.groupBy('u_connectionid');
+  ga.addAggregate('COUNT');
+  ga.query();
+
+  while (ga.next()) {
+    gs.info(
+      'resourceid=' + ga.getValue('u_resourceid') +
+      ', name=' + ga.getValue('u_name') +
+      ', connectionid=' + ga.getValue('u_connectionid') +
+      ', count=' + ga.getAggregate('COUNT')
+    );
+  }
+})();
+```
+
+ここで同じ ResourceID が複数件出る場合、Custom SQL が1台につき複数行返している可能性があります。
+その場合は、`sys_object_source` を整理しても Import のたびにまた崩れます。
+
+---
+
+## 今はまだ子 Data Source を流さない方がいいです
+
+現状では、Computer Identity の段階でまだ戻っていません。
+この状態で OS / Network / Processor / Disk / Software を流すと、壊れた親CIに子情報が再び紐づく可能性があります。
+
+次は必ず：
+
+```text
+1. ISET0016151 の row が正しいか確認
+2. 同じ ResourceID が複数行ないか確認
+3. Name / Serial の sys_audit で、Import時に本当に更新されているか確認
+```
+
+の順で見てください。
+
+---
+
+## もし Import Set が正しい場合
+
+Import Set が正しいのに CI が戻らないなら、次は Reconciliation / IRE 側です。
+
+その場合は、対象CIの `name` / `serial_number` に対して、Import時刻の audit を確認します。
+
+```javascript
+(function () {
+  var CI_IDS = [
+    '1eff87c693775a901829fca97bba1027',
+    '9eff87c693775a901829fca97bba100d'
+  ];
+
+  var a = new GlideRecord('sys_audit');
+  a.addQuery('documentkey', 'IN', CI_IDS.join(','));
+  a.addQuery('fieldname', 'IN', 'name,serial_number,ip_address');
+  a.addQuery('sys_created_on', '>=', '2026-04-25 08:00:00');
+  a.orderByDesc('sys_created_on');
+  a.query();
+
+  while (a.next()) {
+    gs.info(
+      'time=' + a.getValue('sys_created_on') +
+      ', documentkey=' + a.getValue('documentkey') +
+      ', field=' + a.getValue('fieldname') +
+      ', old=' + a.getValue('oldvalue') +
+      ', new=' + a.getValue('newvalue') +
+      ', user=' + a.getValue('user')
+    );
+  }
+})();
+```
+
+ここで：
+
+```text
+audit に name / serial_number の更新がない
+```
+
+なら、Import Set は正しくても IRE / Reconciliation / Transform が更新していません。
+
+```text
+audit に sg_sccm_job_user_broadcast で dp01 へ更新されている
+```
+
+なら、Import Set または Transform Payload が dp01 を流しています。
+
+---
+
+## 今の判断
+
+現時点では、`sys_object_source` 修正は成功しています。
+しかし、**再Importで同じ `sys_object_source` が再作成され、かつ CI が戻っていない**ため、次の根本原因はおそらくこちらです。
+
+```text
+Computer Identity SQL が同じ ResourceID を複数行返している
+または
+最新 Import Set の中で 16777220 の値が期待値と違う
+または
+IRE/Reconciliation が Name / Serial の更新をスキップしている
+```
+
+まずは `ISET0016151` の中身を確認してください。
+そこが正しければ、次は audit / IRE 側に進みます。
+
+
+
 確認結果から見ると、原因はかなり絞れました。
 
 **Import Set は正しい、MCM側の ResourceID / Serial / IP / MAC も重複していない。**
