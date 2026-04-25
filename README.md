@@ -284,6 +284,134 @@ ServiceNow側の CI の IP を見て、
 })();
 ```
 
+前の Script を、今回の結果に合わせて少し安全寄りにした版です。
+|ComputerRelatedOU は触らないように、id 完全一致だけを対象にしています。
+
+最初は必ず DRY_RUN = true のまま実行してください。
+```
+(function () {
+  var DRY_RUN = true; // 最初は必ず true。確認後に false にする
+
+  var SOURCE_NAME = 'SG-SCCM';
+
+  var OLD_CONN = '03066860c7122010b56243ac95c26027';
+  var NEW_CONN = 'd87b46b72b6fd210ca31faac6e91bf43';
+
+  // ★ここを正しい対応に修正してください
+  var MAP = {
+    // ResourceID : 正しい CI sys_id
+    '16777219': 'ここに16777219が対応すべきCIのsys_id',
+    '16777220': 'ここに16777220が対応すべきCIのsys_id'
+  };
+
+  function log(msg) {
+    gs.info('[SG-SCCM SOS FIX] ' + msg);
+  }
+
+  function warn(msg) {
+    gs.warn('[SG-SCCM SOS FIX] ' + msg);
+  }
+
+  function deleteExactOldConnectionSources(resourceId) {
+    var oldKey = resourceId + '|' + OLD_CONN;
+
+    var gr = new GlideRecord('sys_object_source');
+    gr.addQuery('name', SOURCE_NAME);
+    gr.addQuery('id', oldKey); // 完全一致。ComputerRelatedOU は対象外
+    gr.query();
+
+    while (gr.next()) {
+      log('[PLAN DELETE OLD] source_sys_id=' + gr.getUniqueValue() +
+        ', id=' + gr.getValue('id') +
+        ', target=' + gr.getValue('target_sys_id') +
+        ', created_by=' + gr.getValue('sys_created_by') +
+        ', updated_by=' + gr.getValue('sys_updated_by'));
+
+      if (!DRY_RUN) {
+        gr.deleteRecord();
+      }
+    }
+  }
+
+  function keepOneExactNewSource(resourceId, targetSysId) {
+    var newKey = resourceId + '|' + NEW_CONN;
+    var keepSysId = '';
+
+    var gr = new GlideRecord('sys_object_source');
+    gr.addQuery('name', SOURCE_NAME);
+    gr.addQuery('id', newKey); // 完全一致。ComputerRelatedOU は対象外
+    gr.orderBy('sys_created_on');
+    gr.query();
+
+    while (gr.next()) {
+      if (!keepSysId) {
+        keepSysId = gr.getUniqueValue();
+
+        log('[PLAN KEEP/UPDATE] source_sys_id=' + keepSysId +
+          ', id=' + newKey +
+          ', old_target=' + gr.getValue('target_sys_id') +
+          ', new_target=' + targetSysId);
+
+        if (!DRY_RUN) {
+          gr.setValue('target_sys_id', targetSysId);
+          gr.update();
+        }
+      } else {
+        log('[PLAN DELETE DUPLICATE] source_sys_id=' + gr.getUniqueValue() +
+          ', id=' + gr.getValue('id') +
+          ', target=' + gr.getValue('target_sys_id') +
+          ', created_by=' + gr.getValue('sys_created_by') +
+          ', updated_by=' + gr.getValue('sys_updated_by'));
+
+        if (!DRY_RUN) {
+          gr.deleteRecord();
+        }
+      }
+    }
+
+    if (!keepSysId) {
+      warn('[NO NEW SOURCE FOUND] id=' + newKey +
+        '. この場合は Full Import 前に手動作成するか、Import に任せる必要があります。');
+    }
+  }
+
+  function verifyCIExists(sysId) {
+    var ci = new GlideRecord('cmdb_ci');
+    if (!ci.get(sysId)) {
+      warn('[CI NOT FOUND] sys_id=' + sysId);
+      return false;
+    }
+
+    log('[CI FOUND] sys_id=' + sysId +
+      ', class=' + ci.getValue('sys_class_name') +
+      ', name=' + ci.getValue('name') +
+      ', ip_address=' + ci.getValue('ip_address') +
+      ', serial_number=' + ci.getValue('serial_number'));
+
+    return true;
+  }
+
+  for (var resourceId in MAP) {
+    var targetSysId = MAP[resourceId];
+
+    if (!targetSysId || targetSysId.indexOf('ここに') === 0) {
+      warn('[SKIP] MAP is not configured for ResourceID=' + resourceId);
+      continue;
+    }
+
+    if (!verifyCIExists(targetSysId)) {
+      warn('[SKIP] target CI does not exist. ResourceID=' + resourceId);
+      continue;
+    }
+
+    deleteExactOldConnectionSources(resourceId);
+    keepOneExactNewSource(resourceId, targetSysId);
+  }
+
+  log('DONE. DRY_RUN=' + DRY_RUN);
+})();
+```
+
 ---
 
 ## 実行後に期待する状態
