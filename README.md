@@ -1,3 +1,379 @@
+確認結果から見ると、原因はかなり絞れました。
+
+**Import Set は正しい、MCM側の ResourceID / Serial / IP / MAC も重複していない。**
+それなのに CI が上書きされるなら、問題はほぼ **`sys_object_source` の紐付け破損**です。
+
+しかも添付のログを見ると、かなり明確です。
+
+```text
+id=16777219|03066860c7122010b56243ac95c26027
+target_sys_id=9eff87c693775a901829fca97bba100d
+
+id=16777219|d87b46b72b6fd210ca31faac6e91bf43
+target_sys_id=9eff87c693775a901829fca97bba100d
+
+id=16777220|d87b46b72b6fd210ca31faac6e91bf43
+target_sys_id=9eff87c693775a901829fca97bba100d
+```
+
+つまり、**ResourceID 16777219 と 16777220 が、両方とも同じ CI `9eff...100d` に向いています。**
+
+これが直接原因です。
+
+---
+
+## 今起きていること
+
+本来はこうあるべきです。
+
+```text
+16777219|新connectionid  → CI A
+16777220|新connectionid  → CI B
+```
+
+しかし今は、こうなっています。
+
+```text
+16777219|新connectionid  → CI B
+16777220|新connectionid  → CI B
+```
+
+さらに、同じ `id=16777219|d87...` や `id=16777220|d87...` の `sys_object_source` が複数件あります。
+
+これはかなり悪い状態です。
+SG-SCCM Import が走るたびに、MCM上では正しい2台のデータが、ServiceNow側では同じ CI に流れ込むため、`Name` / `Serial number` が戻ったり上書きされたりします。
+
+---
+
+## これは何の問題か
+
+これは **MCMデータの問題ではありません。**
+
+また、`Name` / `Serial number` の単純なフィールド更新問題でもありません。
+
+正確には：
+
+```text
+sys_object_source の source key と target_sys_id の紐付けが壊れている問題
+```
+
+です。
+
+そのため、CI フィールドを直接修正しても、次の Import でまた戻されます。
+
+---
+
+## 対応方針
+
+やるべきことは、CIの値を直すことではなく、**MCM ResourceID と CI sys_id の対応関係を正しく戻すこと**です。
+
+### 正しい復旧順序
+
+```text
+1. SG-SCCM の Scheduled Import を停止
+2. SQL の connectionid 修正済みであることを確認
+3. 対象 ResourceID と正しい CI sys_id の対応表を作る
+4. 壊れた sys_object_source を整理する
+5. 正しい source key を正しい CI に向ける
+6. MCMから Computer Identity を再Import
+7. 子 Data Source を再Import
+```
+
+---
+
+## まず決めるべき対応表
+
+今回の例では、少なくとも次の2つを決める必要があります。
+
+```text
+ResourceID 16777219 → どちらの CI sys_id か
+ResourceID 16777220 → どちらの CI sys_id か
+```
+
+画面上では CI が2つあります。
+
+```text
+1eff87c693775a901829fca97bba1027
+9eff87c693775a901829fca97bba100d
+```
+
+ただし、今の `Name` / `Serial number` は壊れているので判断材料にしない方がいいです。
+
+判断には以下を使ってください。
+
+```text
+IP Address
+MAC Address
+Network Data Source の Import Set
+MCM側の ResourceID と IP / MAC の対応
+```
+
+たとえば MCM側で以下なら：
+
+```text
+16777219 = edr-sot-i-dp01 = 10.159.134.23
+16777220 = edr-sot-i-ps01 = 10.159.134.22
+```
+
+ServiceNow側の CI の IP を見て、
+
+```text
+10.159.134.23 の CI sys_id → 16777219
+10.159.134.22 の CI sys_id → 16777220
+```
+
+という対応にします。
+
+---
+
+## 修復スクリプトの考え方
+
+以下は **DRY_RUN 用**です。
+最初は絶対に `DRY_RUN = true` のまま実行してください。
+
+### 1. 対象 ResourceID の sys_object_source を確認
+
+```javascript
+(function () {
+  var RESOURCE_IDS = ['16777219', '16777220'];
+  var OLD_CONN = '03066860c7122010b56243ac95c26027';
+  var NEW_CONN = 'd87b46b72b6fd210ca31faac6e91bf43';
+
+  var gr = new GlideRecord('sys_object_source');
+  var qc = gr.addQuery('id', 'STARTSWITH', RESOURCE_IDS[0] + '|');
+  for (var i = 1; i < RESOURCE_IDS.length; i++) {
+    qc.addOrCondition('id', 'STARTSWITH', RESOURCE_IDS[i] + '|');
+  }
+  gr.addQuery('name', 'SG-SCCM');
+  gr.orderBy('id');
+  gr.orderBy('sys_created_on');
+  gr.query();
+
+  while (gr.next()) {
+    gs.info(
+      'source_sys_id=' + gr.getUniqueValue() +
+      ', id=' + gr.getValue('id') +
+      ', target_sys_id=' + gr.getValue('target_sys_id') +
+      ', created_by=' + gr.getValue('sys_created_by') +
+      ', updated_by=' + gr.getValue('sys_updated_by') +
+      ', created_on=' + gr.getValue('sys_created_on')
+    );
+  }
+})();
+```
+
+ここで確認するのは：
+
+```text
+16777219|新connectionid が何件あるか
+16777220|新connectionid が何件あるか
+それぞれ target_sys_id がどこを向いているか
+旧 connectionid の行が残っているか
+```
+
+---
+
+## 修復スクリプト案
+
+以下は、対象2台だけを整理するスクリプトです。
+
+やることは：
+
+```text
+1. 旧 connectionid の source を削除
+2. 新 connectionid の source を ResourceID ごとに1件だけ残す
+3. その1件を正しい CI sys_id に向ける
+4. 重複している sys_object_source を削除
+```
+
+```javascript
+(function () {
+  var DRY_RUN = true; // 最初は必ず true
+
+  var SOURCE_NAME = 'SG-SCCM';
+  var OLD_CONN = '03066860c7122010b56243ac95c26027';
+  var NEW_CONN = 'd87b46b72b6fd210ca31faac6e91bf43';
+
+  // ★ここを正しい対応に修正してください
+  var MAP = {
+    // ResourceID : 正しい CI sys_id
+    '16777219': 'ここに16777219が対応すべきCIのsys_id',
+    '16777220': 'ここに16777220が対応すべきCIのsys_id'
+  };
+
+  function log(msg) {
+    gs.info('[SG-SCCM SOS FIX] ' + msg);
+  }
+
+  function warn(msg) {
+    gs.warn('[SG-SCCM SOS FIX] ' + msg);
+  }
+
+  function deleteOldConnectionSources(resourceId) {
+    var oldKey = resourceId + '|' + OLD_CONN;
+
+    var gr = new GlideRecord('sys_object_source');
+    gr.addQuery('name', SOURCE_NAME);
+    gr.addQuery('id', oldKey);
+    gr.query();
+
+    while (gr.next()) {
+      log('[PLAN DELETE OLD] sys_id=' + gr.getUniqueValue() +
+        ', id=' + gr.getValue('id') +
+        ', target=' + gr.getValue('target_sys_id'));
+
+      if (!DRY_RUN) {
+        gr.deleteRecord();
+      }
+    }
+  }
+
+  function keepOneNewSource(resourceId, targetSysId) {
+    var newKey = resourceId + '|' + NEW_CONN;
+    var keepSysId = '';
+
+    var gr = new GlideRecord('sys_object_source');
+    gr.addQuery('name', SOURCE_NAME);
+    gr.addQuery('id', newKey);
+    gr.orderBy('sys_created_on');
+    gr.query();
+
+    while (gr.next()) {
+      if (!keepSysId) {
+        keepSysId = gr.getUniqueValue();
+
+        log('[PLAN KEEP/UPDATE] sys_id=' + keepSysId +
+          ', id=' + newKey +
+          ', old_target=' + gr.getValue('target_sys_id') +
+          ', new_target=' + targetSysId);
+
+        if (!DRY_RUN) {
+          gr.setValue('target_sys_id', targetSysId);
+          gr.update();
+        }
+      } else {
+        log('[PLAN DELETE DUPLICATE] sys_id=' + gr.getUniqueValue() +
+          ', id=' + gr.getValue('id') +
+          ', target=' + gr.getValue('target_sys_id'));
+
+        if (!DRY_RUN) {
+          gr.deleteRecord();
+        }
+      }
+    }
+
+    if (!keepSysId) {
+      warn('[NO NEW SOURCE FOUND] id=' + newKey +
+        '. Full Import may create it, but existing CI may not be reused automatically.');
+    }
+  }
+
+  for (var resourceId in MAP) {
+    var targetSysId = MAP[resourceId];
+
+    if (!targetSysId || targetSysId.indexOf('ここに') === 0) {
+      warn('MAP is not configured for ResourceID=' + resourceId);
+      continue;
+    }
+
+    deleteOldConnectionSources(resourceId);
+    keepOneNewSource(resourceId, targetSysId);
+  }
+
+  log('DONE. DRY_RUN=' + DRY_RUN);
+})();
+```
+
+---
+
+## 実行後に期待する状態
+
+修正後、`sys_object_source` は最低限こうなるべきです。
+
+```text
+id=16777219|d87b46b72b6fd210ca31faac6e91bf43
+target_sys_id=CI A
+
+id=16777220|d87b46b72b6fd210ca31faac6e91bf43
+target_sys_id=CI B
+```
+
+かつ、以下が残っていない状態にします。
+
+```text
+id=16777219|03066860c7122010b56243ac95c26027
+id=16777220|03066860c7122010b56243ac95c26027
+```
+
+また、同じ `id=16777219|d87...` が複数件ある状態も避けるべきです。
+
+---
+
+## その後の再Import
+
+`sys_object_source` を直した後で、MCMから戻します。
+
+最初は全件ではなく、対象2台だけに絞るのがおすすめです。
+
+### Computer Identity SQL に一時的に条件を入れる
+
+```sql
+WHERE v_GS_COMPUTER_SYSTEM.ResourceID IN (16777219, 16777220)
+```
+
+その状態で：
+
+```text
+1. ot_prodE-SG-SCCM Computer Identity を実行
+2. 2つの CI がそれぞれ正しい Name / Serial に戻るか確認
+3. もう一度実行しても入れ替わらないことを確認
+4. OS / Network / Processor / Disk などの子 Data Source を実行
+```
+
+問題なければ、WHERE 条件を戻して通常の Full Import に進めます。
+
+---
+
+## 重要：今の状態で Full Import だけ実行しない方がいいです
+
+Import Set が正しくても、`sys_object_source` が壊れているので、Full Import だけを実行するとまた同じ CI に流れます。
+
+つまり、
+
+```text
+Import Set 正しい
+MCM 正しい
+Serial 重複なし
+でも sys_object_source が壊れている
+```
+
+この場合は、**Full Import の前に sys_object_source を修正する必要があります。**
+
+---
+
+## 結論
+
+今回の直接原因はこれです。
+
+```text
+ResourceID 16777219 と 16777220 の sys_object_source が、
+同じ target_sys_id=9eff87c693775a901829fca97bba100d を向いている
+```
+
+そのため、修復方針は：
+
+```text
+CIフィールドを直す
+ではなく
+sys_object_source の target_sys_id を正しい CI に戻す
+```
+
+です。
+
+それを直したあとなら、MCMからの再Importで Name / Serial だけでなく、他の項目もまとめて正しく戻せます。
+
+
+
 ```
 (function () {
   var ids = [
