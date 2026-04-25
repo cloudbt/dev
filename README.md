@@ -1,4 +1,318 @@
 
+はい。`it_prod` 側が複数 ISET に分割される前提で、**Import Set 番号を配列で複数指定できる版**に直せます。
+
+下記スクリプトは読み取り専用です。
+やることはこれだけです。
+
+```text
+1. it_prod 側の複数 ISET を読み込む
+2. ot_prodE 側の複数 ISET を読み込む
+3. 両方に存在する同一 ResourceID を抽出
+4. Name または Serial が異なるものだけ出力
+```
+
+---
+
+## Script：同一 ResourceID かつ Name / Serial が異なるものを一覧化
+
+```javascript
+(function () {
+  var IMPORT_TABLE = 'sn_sccm_integrate_sccm_2019_computer_id';
+
+  // ★ it_prod 側の Import Set 番号を複数指定
+  var IT_IMPORT_SET_NUMBERS = [
+    'ISET_IT_000001',
+    'ISET_IT_000002'
+  ];
+
+  // ★ ot_prodE 側の Import Set 番号を指定
+  // ot_prodE も複数に分かれる可能性があるなら追加
+  var OT_IMPORT_SET_NUMBERS = [
+    'ISET_OT_000001'
+  ];
+
+  // true: Name または Serial が異なるものだけ出力
+  // false: 同じ ResourceID が両方に存在するものをすべて出力
+  var ONLY_DIFFERENT = true;
+
+  function print(msg) {
+    gs.print(msg);
+  }
+
+  function normalize(v) {
+    return (v || '').toString().trim().toLowerCase();
+  }
+
+  function escape(v) {
+    return (v || '').toString().replace(/\|/g, '/');
+  }
+
+  function getFirstValue(gr, fields) {
+    for (var i = 0; i < fields.length; i++) {
+      if (gr.isValidField(fields[i])) {
+        return gr.getValue(fields[i]) || '';
+      }
+    }
+    return '';
+  }
+
+  function getImportSetSysIds(numbers, label) {
+    var sysIds = [];
+
+    for (var i = 0; i < numbers.length; i++) {
+      var num = numbers[i];
+
+      var set = new GlideRecord('sys_import_set');
+      set.addQuery('number', num);
+      set.query();
+
+      if (set.next()) {
+        sysIds.push(set.getUniqueValue());
+        print('INFO|IMPORT_SET_FOUND|side=' + label +
+          '|number=' + num +
+          '|sys_id=' + set.getUniqueValue());
+      } else {
+        print('WARN|IMPORT_SET_NOT_FOUND|side=' + label +
+          '|number=' + num);
+      }
+    }
+
+    return sysIds;
+  }
+
+  function pickSerial(row) {
+    // SG-SCCM Computer Identity では BIOSSerialNumber を主に使う想定。
+    // 必要に応じて優先順を変更してください。
+    if (row.bios) return row.bios;
+    if (row.system_serial) return row.system_serial;
+    if (row.chassis_serial) return row.chassis_serial;
+    return '';
+  }
+
+  function loadRows(side, importSetNumbers) {
+    var result = {
+      rows: {},
+      duplicateResourceIds: {},
+      rowCount: 0
+    };
+
+    var importSetSysIds = getImportSetSysIds(importSetNumbers, side);
+
+    if (importSetSysIds.length === 0) {
+      print('ERROR|NO_IMPORT_SET_SYS_IDS|side=' + side);
+      return result;
+    }
+
+    var gr = new GlideRecord(IMPORT_TABLE);
+    gr.addQuery('sys_import_set', 'IN', importSetSysIds.join(','));
+    gr.orderBy('sys_created_on');
+    gr.query();
+
+    while (gr.next()) {
+      result.rowCount++;
+
+      var resourceId = getFirstValue(gr, [
+        'u_resourceid',
+        'u_resource_id',
+        'resourceid',
+        'resource_id'
+      ]);
+
+      if (!resourceId) {
+        continue;
+      }
+
+      var row = {
+        side: side,
+        resource_id: resourceId,
+        row_sys_id: gr.getUniqueValue(),
+        import_set: gr.getDisplayValue('sys_import_set'),
+        created_on: gr.getValue('sys_created_on'),
+        name: getFirstValue(gr, ['u_name', 'name']),
+        bios: getFirstValue(gr, [
+          'u_biosserialnumber',
+          'u_bios_serial_number',
+          'biosserialnumber'
+        ]),
+        system_serial: getFirstValue(gr, [
+          'u_systemserialnumber',
+          'u_system_serial_number',
+          'systemserialnumber'
+        ]),
+        chassis_serial: getFirstValue(gr, [
+          'u_chassisserialnumber',
+          'u_chassis_serial_number',
+          'chassisserialnumber'
+        ])
+      };
+
+      row.serial = pickSerial(row);
+
+      if (result.rows[resourceId]) {
+        if (!result.duplicateResourceIds[resourceId]) {
+          result.duplicateResourceIds[resourceId] = [];
+          result.duplicateResourceIds[resourceId].push(result.rows[resourceId]);
+        }
+
+        result.duplicateResourceIds[resourceId].push(row);
+
+        // 複数ISETに同一ResourceIDがある場合は、最新行を採用
+        // Load All Records が分割されただけなら通常は重複しない想定。
+        if (row.created_on > result.rows[resourceId].created_on) {
+          result.rows[resourceId] = row;
+        }
+      } else {
+        result.rows[resourceId] = row;
+      }
+    }
+
+    return result;
+  }
+
+  var it = loadRows('it_prod', IT_IMPORT_SET_NUMBERS);
+  var ot = loadRows('ot_prodE', OT_IMPORT_SET_NUMBERS);
+
+  print('===== SAME RESOURCEID NAME/SERIAL DIFF CHECK =====');
+
+  var sameResourceCount = 0;
+  var diffCount = 0;
+  var sameValueCount = 0;
+  var onlyItCount = 0;
+  var onlyOtCount = 0;
+
+  for (var rid in it.rows) {
+    if (!ot.rows[rid]) {
+      onlyItCount++;
+      continue;
+    }
+
+    sameResourceCount++;
+
+    var itRow = it.rows[rid];
+    var otRow = ot.rows[rid];
+
+    var nameDiff = normalize(itRow.name) !== normalize(otRow.name);
+    var serialDiff = normalize(itRow.serial) !== normalize(otRow.serial);
+
+    if (!nameDiff && !serialDiff) {
+      sameValueCount++;
+      if (ONLY_DIFFERENT) {
+        continue;
+      }
+    } else {
+      diffCount++;
+    }
+
+    print([
+      'RESOURCE_ID_COMPARE',
+      'resource_id=' + rid,
+      'name_diff=' + nameDiff,
+      'serial_diff=' + serialDiff,
+      'it_name=' + escape(itRow.name),
+      'it_serial=' + escape(itRow.serial),
+      'it_import_set=' + escape(itRow.import_set),
+      'ot_name=' + escape(otRow.name),
+      'ot_serial=' + escape(otRow.serial),
+      'ot_import_set=' + escape(otRow.import_set)
+    ].join('|'));
+  }
+
+  for (var otRid in ot.rows) {
+    if (!it.rows[otRid]) {
+      onlyOtCount++;
+    }
+  }
+
+  print('===== DUPLICATE RESOURCEID INSIDE EACH SIDE =====');
+
+  var itDupCount = 0;
+  for (var dit in it.duplicateResourceIds) {
+    itDupCount++;
+    print('WARN|DUPLICATE_RESOURCE_ID_IN_IT_IMPORT_SETS' +
+      '|resource_id=' + dit +
+      '|count=' + it.duplicateResourceIds[dit].length);
+  }
+
+  var otDupCount = 0;
+  for (var dot in ot.duplicateResourceIds) {
+    otDupCount++;
+    print('WARN|DUPLICATE_RESOURCE_ID_IN_OT_IMPORT_SETS' +
+      '|resource_id=' + dot +
+      '|count=' + ot.duplicateResourceIds[dot].length);
+  }
+
+  print('SUMMARY_COMPARE' +
+    '|it_row_count=' + it.rowCount +
+    '|ot_row_count=' + ot.rowCount +
+    '|it_resource_count=' + Object.keys(it.rows).length +
+    '|ot_resource_count=' + Object.keys(ot.rows).length +
+    '|same_resource_id_count=' + sameResourceCount +
+    '|different_name_or_serial_count=' + diffCount +
+    '|same_name_and_serial_count=' + sameValueCount +
+    '|only_it_resource_count=' + onlyItCount +
+    '|only_ot_resource_count=' + onlyOtCount +
+    '|it_duplicate_resource_id_count=' + itDupCount +
+    '|ot_duplicate_resource_id_count=' + otDupCount);
+
+})();
+```
+
+---
+
+## 出力で見るべき行
+
+主に見るのはこの行です。
+
+```text
+RESOURCE_ID_COMPARE
+```
+
+例：
+
+```text
+RESOURCE_ID_COMPARE|resource_id=16779008|name_diff=true|serial_diff=true|it_name=XXX|it_serial=AAA|ot_name=YYY|ot_serial=BBB
+```
+
+これは説明資料にそのまま使えます。
+
+意味は：
+
+```text
+同じ ResourceID が it_prod と ot_prodE の両方に存在するが、
+Name または Serial が異なる。
+したがって ResourceID 単体ではインスタンス横断で一意ではない。
+```
+
+---
+
+## 期待する使い方
+
+このスクリプトでまず、
+
+```text
+same_resource_id_count
+different_name_or_serial_count
+```
+
+を確認してください。
+
+説明資料には、`RESOURCE_ID_COMPARE` のうち代表例を数件載せれば十分です。
+
+たとえば：
+
+```text
+it_prod と ot_prodE の MCM には同一 ResourceID が存在する。
+しかし同一 ResourceID であっても Name / Serial が異なる端末が存在する。
+そのため SG-SCCM の source key は ResourceID 単体ではなく、
+connectionid を含めてインスタンスごとに分離する必要がある。
+```
+
+この結果は、次の作業、つまり **旧 connectionid が共通だったことによる source key 衝突の説明**に使えます。
+
+
+
+
+
 はい、可能です。構成は以下でよいです。
 
 ```text
