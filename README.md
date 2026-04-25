@@ -1,3 +1,31 @@
+```
+(function () {
+  var ids = [
+    '1eff87c693775a901829fca97bba1027',
+    '9eff87c693775a901829fca97bba100d'
+  ];
+
+  var gr = new GlideRecord('sys_object_source');
+  gr.addQuery('target_sys_id', 'IN', ids.join(','));
+  gr.orderBy('target_sys_id');
+  gr.orderBy('sys_created_on');
+  gr.query();
+
+  while (gr.next()) {
+    gs.info(
+      'source_sys_id=' + gr.getUniqueValue() +
+      ', name=' + gr.getValue('name') +
+      ', id=' + gr.getValue('id') +
+      ', target_sys_id=' + gr.getValue('target_sys_id') +
+      ', created_by=' + gr.getValue('sys_created_by') +
+      ', updated_by=' + gr.getValue('sys_updated_by')
+    );
+  }
+})();
+```
+
+
+
 Group by が直接できないのは ServiceNow の標準リスト画面の制約ですが、いくつか別の方法で同じ目的を達成できます。順番に提示します。
 
 ---
