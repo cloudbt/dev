@@ -1,4 +1,1109 @@
 
+はい、可能です。構成は以下でよいです。
+
+```text
+Script 1：5 + 6
+問題ResourceID洗い出し + ot_prodE Import Setを正として MAP 候補作成
+
+Script 2：7
+it_prod Import Set と ot_prodE Import Set の衝突確認・説明資料用
+
+Script 3：9
+MAP を使って Computer Identity の sys_object_source を修正
+```
+
+以下、すべて **Background Script 用** です。
+
+---
+
+# Script 1：問題ResourceID洗い出し + MAP候補作成
+
+これは **読み取り専用** です。
+`sys_object_source` から問題ResourceIDを洗い出し、`ot_prodE` の Import Set を正として `ResourceID → 正しいCI sys_id` の MAP 候補を出します。
+
+事前に `OT_IMPORT_SET_NUMBER` を、ot_prodE 側 Computer Identity の Load All Records で作成された Import Set 番号に変更してください。
+
+```javascript
+(function () {
+  var SOURCE_NAME = 'SG-SCCM';
+
+  // 旧・共通 connectionid
+  var OLD_CONN = '03066860c7122010b56243ac95c26027';
+
+  // ★ot_prodE 側 Computer Identity の Load All Records で作成された Import Set番号
+  var OT_IMPORT_SET_NUMBER = 'ISETxxxxxxxx';
+
+  var IMPORT_TABLE = 'sn_sccm_integrate_sccm_2019_computer_id';
+
+  // true: 問題候補ResourceIDだけMAP化
+  // false: ot_prodE Import Set内の全ResourceIDをMAP化
+  var ONLY_PROBLEM_RESOURCE_IDS = true;
+
+  // MAP_OK とするしきい値
+  var MIN_SCORE_FOR_AUTO_MAP = 50;
+  var MIN_SCORE_GAP = 15;
+
+  function print(msg) {
+    gs.print(msg);
+  }
+
+  function countKeys(obj) {
+    var count = 0;
+    for (var k in obj) {
+      count++;
+    }
+    return count;
+  }
+
+  function getFirstValue(gr, fields) {
+    for (var i = 0; i < fields.length; i++) {
+      if (gr.isValidField(fields[i])) {
+        return gr.getValue(fields[i]) || '';
+      }
+    }
+    return '';
+  }
+
+  function normalize(v) {
+    return (v || '').toString().toLowerCase();
+  }
+
+  function safe(v) {
+    return (v || '').toString().replace(/'/g, "\\'");
+  }
+
+  function isIdentitySourceId(sourceId) {
+    // 対象:
+    // 16777219|03066860c7122010b56243ac95c26027
+    //
+    // 除外:
+    // 16777219|03066860...|ComputerRelatedOU
+    // VMware-xxx||BIOS||16777219||03066860...
+    var parts = sourceId.split('|');
+
+    if (parts.length !== 2) {
+      return false;
+    }
+
+    if (parts[1] !== OLD_CONN) {
+      return false;
+    }
+
+    return /^\d+$/.test(parts[0]);
+  }
+
+  function getResourceIdFromSourceId(sourceId) {
+    return sourceId.split('|')[0];
+  }
+
+  function addReason(problemMap, resourceId, reason) {
+    if (!problemMap[resourceId]) {
+      problemMap[resourceId] = {};
+    }
+    problemMap[resourceId][reason] = true;
+  }
+
+  function reasonsToString(reasonMap) {
+    var out = [];
+    for (var k in reasonMap) {
+      out.push(k);
+    }
+    return out.join(',');
+  }
+
+  function getImportSetSysId(number) {
+    var set = new GlideRecord('sys_import_set');
+    set.addQuery('number', number);
+    set.query();
+
+    if (set.next()) {
+      return set.getUniqueValue();
+    }
+
+    return '';
+  }
+
+  function loadOtImportRows() {
+    var rows = {};
+    var importSetSysId = getImportSetSysId(OT_IMPORT_SET_NUMBER);
+
+    if (!importSetSysId) {
+      print('ERROR|OT_IMPORT_SET_NOT_FOUND|number=' + OT_IMPORT_SET_NUMBER);
+      return rows;
+    }
+
+    var gr = new GlideRecord(IMPORT_TABLE);
+    gr.addQuery('sys_import_set', importSetSysId);
+    gr.query();
+
+    while (gr.next()) {
+      var resourceId = getFirstValue(gr, [
+        'u_resourceid',
+        'u_resource_id',
+        'resourceid',
+        'resource_id'
+      ]);
+
+      if (!resourceId) {
+        continue;
+      }
+
+      rows[resourceId] = {
+        resource_id: resourceId,
+        row_sys_id: gr.getUniqueValue(),
+        name: getFirstValue(gr, ['u_name', 'name']),
+        connectionid: getFirstValue(gr, ['u_connectionid', 'connectionid', 'connection_id']),
+        bios: getFirstValue(gr, ['u_biosserialnumber', 'u_bios_serial_number', 'biosserialnumber']),
+        system_serial: getFirstValue(gr, ['u_systemserialnumber', 'u_system_serial_number', 'systemserialnumber']),
+        chassis_serial: getFirstValue(gr, ['u_chassisserialnumber', 'u_chassis_serial_number', 'chassisserialnumber']),
+        ip: getFirstValue(gr, ['u_ipaddress', 'u_ip_address', 'ipaddress']),
+        mac: getFirstValue(gr, ['u_macaddress', 'u_mac_address', 'macaddress'])
+      };
+    }
+
+    return rows;
+  }
+
+  function loadProblemResourceIds(otRows) {
+    var targetMap = {};
+    var sourceKeyMap = {};
+    var problemMap = {};
+
+    var gr = new GlideRecord('sys_object_source');
+    gr.addQuery('name', SOURCE_NAME);
+    gr.addQuery('id', 'CONTAINS', OLD_CONN);
+    gr.query();
+
+    while (gr.next()) {
+      var sourceId = gr.getValue('id');
+
+      if (!isIdentitySourceId(sourceId)) {
+        continue;
+      }
+
+      var resourceId = getResourceIdFromSourceId(sourceId);
+
+      // ot_prodE に存在しない ResourceID は今回はMAP対象外
+      if (!otRows[resourceId]) {
+        continue;
+      }
+
+      var targetSysId = gr.getValue('target_sys_id');
+
+      if (!targetMap[targetSysId]) {
+        targetMap[targetSysId] = {};
+      }
+
+      if (!targetMap[targetSysId][resourceId]) {
+        targetMap[targetSysId][resourceId] = [];
+      }
+
+      targetMap[targetSysId][resourceId].push({
+        source_sys_id: gr.getUniqueValue(),
+        source_id: sourceId
+      });
+
+      if (!sourceKeyMap[sourceId]) {
+        sourceKeyMap[sourceId] = [];
+      }
+
+      sourceKeyMap[sourceId].push({
+        resource_id: resourceId,
+        source_sys_id: gr.getUniqueValue(),
+        target_sys_id: targetSysId
+      });
+    }
+
+    for (var target in targetMap) {
+      var rids = [];
+
+      for (var rid in targetMap[target]) {
+        rids.push(rid);
+      }
+
+      if (rids.length > 1) {
+        print('PROBLEM_GROUP|MULTI_RESOURCE_SAME_CI|current_target_sys_id=' + target +
+          '|resource_ids=' + rids.join(','));
+
+        for (var i = 0; i < rids.length; i++) {
+          addReason(problemMap, rids[i], 'MULTI_RESOURCE_SAME_CI');
+        }
+      }
+    }
+
+    for (var sourceKey in sourceKeyMap) {
+      if (sourceKeyMap[sourceKey].length > 1) {
+        print('PROBLEM_GROUP|DUPLICATE_SOURCE_KEY|source_id=' + sourceKey +
+          '|count=' + sourceKeyMap[sourceKey].length);
+
+        for (var j = 0; j < sourceKeyMap[sourceKey].length; j++) {
+          addReason(problemMap, sourceKeyMap[sourceKey][j].resource_id, 'DUPLICATE_SOURCE_KEY');
+        }
+      }
+    }
+
+    return problemMap;
+  }
+
+  function addCandidate(candidates, ciSysId, score, reason) {
+    if (!ciSysId) {
+      return;
+    }
+
+    if (!candidates[ciSysId]) {
+      candidates[ciSysId] = {
+        ci: ciSysId,
+        score: 0,
+        reasons: {}
+      };
+    }
+
+    candidates[ciSysId].score += score;
+    candidates[ciSysId].reasons[reason] = true;
+  }
+
+  function searchCiByField(candidates, tableName, fieldName, value, score, reason) {
+    if (!value) {
+      return;
+    }
+
+    var gr = new GlideRecord(tableName);
+
+    if (!gr.isValidField(fieldName)) {
+      return;
+    }
+
+    gr.addQuery(fieldName, value);
+    gr.setLimit(20);
+    gr.query();
+
+    while (gr.next()) {
+      addCandidate(candidates, gr.getUniqueValue(), score, reason + '@' + tableName);
+    }
+  }
+
+  function addOldSourceTargets(candidates, resourceId) {
+    var sourceKey = resourceId + '|' + OLD_CONN;
+
+    var gr = new GlideRecord('sys_object_source');
+    gr.addQuery('name', SOURCE_NAME);
+    gr.addQuery('id', sourceKey);
+    gr.query();
+
+    while (gr.next()) {
+      addCandidate(candidates, gr.getValue('target_sys_id'), 5, 'current_old_source_target');
+    }
+  }
+
+  function getCiInfo(sysId) {
+    var ci = new GlideRecord('cmdb_ci');
+    if (!ci.get(sysId)) {
+      return {
+        exists: false,
+        sys_id: sysId,
+        class_name: '',
+        name: '',
+        host_name: '',
+        ip: '',
+        serial: '',
+        created_by: '',
+        updated_by: ''
+      };
+    }
+
+    return {
+      exists: true,
+      sys_id: ci.getUniqueValue(),
+      class_name: ci.getValue('sys_class_name'),
+      name: ci.getValue('name'),
+      host_name: ci.isValidField('host_name') ? ci.getValue('host_name') : '',
+      ip: ci.isValidField('ip_address') ? ci.getValue('ip_address') : '',
+      serial: ci.isValidField('serial_number') ? ci.getValue('serial_number') : '',
+      created_by: ci.getValue('sys_created_by'),
+      updated_by: ci.getValue('sys_updated_by')
+    };
+  }
+
+  function reasonSetToString(reasonSet) {
+    var out = [];
+    for (var k in reasonSet) {
+      out.push(k);
+    }
+    return out.join(',');
+  }
+
+  function buildCandidates(row) {
+    var candidates = {};
+
+    // host_name は比較的強い
+    searchCiByField(candidates, 'cmdb_ci_computer', 'host_name', row.name, 45, 'host_name=import_name');
+
+    // name は誤更新されている可能性があるため中程度
+    searchCiByField(candidates, 'cmdb_ci_computer', 'name', row.name, 25, 'name=import_name');
+    searchCiByField(candidates, 'cmdb_ci_hardware', 'name', row.name, 20, 'name=import_name');
+
+    // IP は合っていれば強い
+    searchCiByField(candidates, 'cmdb_ci_computer', 'ip_address', row.ip, 40, 'ip_address=import_ip');
+    searchCiByField(candidates, 'cmdb_ci_hardware', 'ip_address', row.ip, 35, 'ip_address=import_ip');
+
+    // serial は今回壊れている可能性があるため補助扱い
+    searchCiByField(candidates, 'cmdb_ci_computer', 'serial_number', row.bios, 20, 'serial=bios');
+    searchCiByField(candidates, 'cmdb_ci_hardware', 'serial_number', row.bios, 20, 'serial=bios');
+
+    searchCiByField(candidates, 'cmdb_ci_computer', 'serial_number', row.system_serial, 20, 'serial=system_serial');
+    searchCiByField(candidates, 'cmdb_ci_hardware', 'serial_number', row.system_serial, 20, 'serial=system_serial');
+
+    searchCiByField(candidates, 'cmdb_ci_computer', 'serial_number', row.chassis_serial, 20, 'serial=chassis_serial');
+    searchCiByField(candidates, 'cmdb_ci_hardware', 'serial_number', row.chassis_serial, 20, 'serial=chassis_serial');
+
+    // 既存の旧source targetは参考程度
+    addOldSourceTargets(candidates, row.resource_id);
+
+    var list = [];
+
+    for (var ciSysId in candidates) {
+      var info = getCiInfo(ciSysId);
+      candidates[ciSysId].info = info;
+
+      if (info.class_name.indexOf('computer') >= 0 ||
+          info.class_name.indexOf('server') >= 0 ||
+          info.class_name.indexOf('hardware') >= 0) {
+        candidates[ciSysId].score += 5;
+        candidates[ciSysId].reasons['class_bonus'] = true;
+      }
+
+      list.push(candidates[ciSysId]);
+    }
+
+    list.sort(function (a, b) {
+      return b.score - a.score;
+    });
+
+    return list;
+  }
+
+  var otRows = loadOtImportRows();
+  var problemMap = loadProblemResourceIds(otRows);
+
+  var okCount = 0;
+  var reviewCount = 0;
+  var skippedCount = 0;
+  var mapLines = [];
+
+  print('===== MAP CANDIDATE RESULT =====');
+
+  for (var rid in otRows) {
+    if (ONLY_PROBLEM_RESOURCE_IDS && !problemMap[rid]) {
+      skippedCount++;
+      continue;
+    }
+
+    var row = otRows[rid];
+    var candidates = buildCandidates(row);
+
+    if (candidates.length === 0) {
+      reviewCount++;
+
+      print('MAP_REVIEW|NO_CANDIDATE' +
+        '|resource_id=' + rid +
+        '|problem_reasons=' + reasonsToString(problemMap[rid] || {}) +
+        '|import_name=' + row.name +
+        '|import_ip=' + row.ip +
+        '|import_bios=' + row.bios +
+        '|import_mac=' + row.mac);
+
+      continue;
+    }
+
+    var best = candidates[0];
+    var second = candidates.length > 1 ? candidates[1] : null;
+    var gap = second ? best.score - second.score : best.score;
+    var info = best.info;
+
+    var isOk =
+      best.score >= MIN_SCORE_FOR_AUTO_MAP &&
+      gap >= MIN_SCORE_GAP;
+
+    var base =
+      '|resource_id=' + rid +
+      '|problem_reasons=' + reasonsToString(problemMap[rid] || {}) +
+      '|import_name=' + row.name +
+      '|import_ip=' + row.ip +
+      '|import_bios=' + row.bios +
+      '|import_mac=' + row.mac +
+      '|selected_ci=' + best.ci +
+      '|score=' + best.score +
+      '|gap=' + gap +
+      '|reasons=' + reasonSetToString(best.reasons) +
+      '|ci_class=' + info.class_name +
+      '|ci_name=' + info.name +
+      '|ci_host_name=' + info.host_name +
+      '|ci_ip=' + info.ip +
+      '|ci_serial=' + info.serial +
+      '|ci_created_by=' + info.created_by;
+
+    if (isOk) {
+      okCount++;
+      print('MAP_OK' + base);
+
+      mapLines.push(
+        "  '" + safe(rid) + "': { ci: '" + safe(best.ci) +
+        "', expected_name: '" + safe(row.name) +
+        "', score: " + best.score +
+        ", reason: '" + safe(reasonSetToString(best.reasons)) + "' }"
+      );
+    } else {
+      reviewCount++;
+      print('MAP_REVIEW|LOW_CONFIDENCE_OR_AMBIGUOUS' + base);
+
+      for (var i = 0; i < candidates.length && i < 5; i++) {
+        var c = candidates[i];
+        var ci = c.info;
+
+        print('MAP_REVIEW_CANDIDATE' +
+          '|resource_id=' + rid +
+          '|rank=' + (i + 1) +
+          '|candidate_ci=' + c.ci +
+          '|score=' + c.score +
+          '|reasons=' + reasonSetToString(c.reasons) +
+          '|ci_name=' + ci.name +
+          '|ci_host_name=' + ci.host_name +
+          '|ci_ip=' + ci.ip +
+          '|ci_serial=' + ci.serial +
+          '|ci_created_by=' + ci.created_by);
+      }
+    }
+  }
+
+  print('===== COPYABLE MAP: MAP_OK ONLY =====');
+  print('var MAP = {');
+
+  for (var m = 0; m < mapLines.length; m++) {
+    var comma = m === mapLines.length - 1 ? '' : ',';
+    print(mapLines[m] + comma);
+  }
+
+  print('};');
+
+  print('SUMMARY_MAP|' +
+    'ot_import_row_count=' + countKeys(otRows) +
+    '|problem_resource_count=' + countKeys(problemMap) +
+    '|map_ok_count=' + okCount +
+    '|map_review_count=' + reviewCount +
+    '|skipped_count=' + skippedCount);
+})();
+```
+
+## Script 1 の結果の使い方
+
+見るのは主にこれです。
+
+```text
+PROBLEM_GROUP
+MAP_OK
+MAP_REVIEW
+MAP_REVIEW_CANDIDATE
+COPYABLE MAP
+```
+
+`MAP_OK` はそのまま復旧スクリプトに入れる候補です。
+`MAP_REVIEW` は手動確認してください。特に `host_name` と `ip_address` が合っている候補を優先します。
+
+---
+
+# Script 2：it_prod Import Set を使った衝突確認・説明資料用
+
+これは **読み取り専用** です。
+it_prod と ot_prodE の両方の Import Set を比較して、同じ ResourceID が両環境に存在し、かつ値が異なることを説明用に出します。
+
+```javascript
+(function () {
+  var SOURCE_NAME = 'SG-SCCM';
+
+  var OLD_CONN = '03066860c7122010b56243ac95c26027';
+
+  // ★it_prod 側 Computer Identity の Load All Records Import Set番号
+  var IT_IMPORT_SET_NUMBER = 'ISET_IT_xxxxxxxx';
+
+  // ★ot_prodE 側 Computer Identity の Load All Records Import Set番号
+  var OT_IMPORT_SET_NUMBER = 'ISET_OT_xxxxxxxx';
+
+  var IMPORT_TABLE = 'sn_sccm_integrate_sccm_2019_computer_id';
+
+  function print(msg) {
+    gs.print(msg);
+  }
+
+  function getFirstValue(gr, fields) {
+    for (var i = 0; i < fields.length; i++) {
+      if (gr.isValidField(fields[i])) {
+        return gr.getValue(fields[i]) || '';
+      }
+    }
+    return '';
+  }
+
+  function getImportSetSysId(number) {
+    var set = new GlideRecord('sys_import_set');
+    set.addQuery('number', number);
+    set.query();
+
+    if (set.next()) {
+      return set.getUniqueValue();
+    }
+
+    return '';
+  }
+
+  function loadRows(importSetNumber) {
+    var rows = {};
+    var importSetSysId = getImportSetSysId(importSetNumber);
+
+    if (!importSetSysId) {
+      print('ERROR|IMPORT_SET_NOT_FOUND|number=' + importSetNumber);
+      return rows;
+    }
+
+    var gr = new GlideRecord(IMPORT_TABLE);
+    gr.addQuery('sys_import_set', importSetSysId);
+    gr.query();
+
+    while (gr.next()) {
+      var resourceId = getFirstValue(gr, [
+        'u_resourceid',
+        'u_resource_id',
+        'resourceid',
+        'resource_id'
+      ]);
+
+      if (!resourceId) {
+        continue;
+      }
+
+      rows[resourceId] = {
+        resource_id: resourceId,
+        name: getFirstValue(gr, ['u_name', 'name']),
+        connectionid: getFirstValue(gr, ['u_connectionid', 'connectionid', 'connection_id']),
+        bios: getFirstValue(gr, ['u_biosserialnumber', 'u_bios_serial_number', 'biosserialnumber']),
+        system_serial: getFirstValue(gr, ['u_systemserialnumber', 'u_system_serial_number', 'systemserialnumber']),
+        chassis_serial: getFirstValue(gr, ['u_chassisserialnumber', 'u_chassis_serial_number', 'chassisserialnumber']),
+        ip: getFirstValue(gr, ['u_ipaddress', 'u_ip_address', 'ipaddress']),
+        mac: getFirstValue(gr, ['u_macaddress', 'u_mac_address', 'macaddress'])
+      };
+    }
+
+    return rows;
+  }
+
+  function isIdentitySourceId(sourceId) {
+    var parts = sourceId.split('|');
+
+    if (parts.length !== 2) {
+      return false;
+    }
+
+    if (parts[1] !== OLD_CONN) {
+      return false;
+    }
+
+    return /^\d+$/.test(parts[0]);
+  }
+
+  function getResourceIdFromSourceId(sourceId) {
+    return sourceId.split('|')[0];
+  }
+
+  function getProblemResourceIds() {
+    var targetMap = {};
+    var problem = {};
+
+    var gr = new GlideRecord('sys_object_source');
+    gr.addQuery('name', SOURCE_NAME);
+    gr.addQuery('id', 'CONTAINS', OLD_CONN);
+    gr.query();
+
+    while (gr.next()) {
+      var sourceId = gr.getValue('id');
+
+      if (!isIdentitySourceId(sourceId)) {
+        continue;
+      }
+
+      var rid = getResourceIdFromSourceId(sourceId);
+      var target = gr.getValue('target_sys_id');
+
+      if (!targetMap[target]) {
+        targetMap[target] = {};
+      }
+
+      targetMap[target][rid] = true;
+    }
+
+    for (var targetSysId in targetMap) {
+      var rids = [];
+
+      for (var rid2 in targetMap[targetSysId]) {
+        rids.push(rid2);
+      }
+
+      if (rids.length > 1) {
+        for (var i = 0; i < rids.length; i++) {
+          problem[rids[i]] = true;
+        }
+      }
+    }
+
+    return problem;
+  }
+
+  function getCiInfo(sysId) {
+    var ci = new GlideRecord('cmdb_ci');
+
+    if (!ci.get(sysId)) {
+      return {
+        name: '',
+        host_name: '',
+        ip: '',
+        serial: '',
+        class_name: '',
+        created_by: ''
+      };
+    }
+
+    return {
+      name: ci.getValue('name'),
+      host_name: ci.isValidField('host_name') ? ci.getValue('host_name') : '',
+      ip: ci.isValidField('ip_address') ? ci.getValue('ip_address') : '',
+      serial: ci.isValidField('serial_number') ? ci.getValue('serial_number') : '',
+      class_name: ci.getValue('sys_class_name'),
+      created_by: ci.getValue('sys_created_by')
+    };
+  }
+
+  function getOldSources(resourceId) {
+    var out = [];
+    var key = resourceId + '|' + OLD_CONN;
+
+    var gr = new GlideRecord('sys_object_source');
+    gr.addQuery('name', SOURCE_NAME);
+    gr.addQuery('id', key);
+    gr.query();
+
+    while (gr.next()) {
+      out.push({
+        source_sys_id: gr.getUniqueValue(),
+        target_sys_id: gr.getValue('target_sys_id')
+      });
+    }
+
+    return out;
+  }
+
+  var itRows = loadRows(IT_IMPORT_SET_NUMBER);
+  var otRows = loadRows(OT_IMPORT_SET_NUMBER);
+  var problem = getProblemResourceIds();
+
+  var count = 0;
+
+  for (var rid in problem) {
+    var it = itRows[rid];
+    var ot = otRows[rid];
+
+    if (!it && !ot) {
+      continue;
+    }
+
+    var sources = getOldSources(rid);
+
+    if (sources.length === 0) {
+      print('EVIDENCE|NO_OLD_SOURCE_FOUND' +
+        '|resource_id=' + rid +
+        '|it_exists=' + !!it +
+        '|ot_exists=' + !!ot);
+      continue;
+    }
+
+    for (var i = 0; i < sources.length; i++) {
+      var ci = getCiInfo(sources[i].target_sys_id);
+
+      count++;
+
+      print('EVIDENCE|RESOURCE_ID_COLLISION_CHECK' +
+        '|resource_id=' + rid +
+        '|old_source_sys_id=' + sources[i].source_sys_id +
+        '|old_target_sys_id=' + sources[i].target_sys_id +
+        '|target_class=' + ci.class_name +
+        '|target_name=' + ci.name +
+        '|target_host_name=' + ci.host_name +
+        '|target_ip=' + ci.ip +
+        '|target_serial=' + ci.serial +
+        '|target_created_by=' + ci.created_by +
+        '|it_exists=' + !!it +
+        '|it_name=' + (it ? it.name : '') +
+        '|it_bios=' + (it ? it.bios : '') +
+        '|it_ip=' + (it ? it.ip : '') +
+        '|it_mac=' + (it ? it.mac : '') +
+        '|ot_exists=' + !!ot +
+        '|ot_name=' + (ot ? ot.name : '') +
+        '|ot_bios=' + (ot ? ot.bios : '') +
+        '|ot_ip=' + (ot ? ot.ip : '') +
+        '|ot_mac=' + (ot ? ot.mac : ''));
+    }
+  }
+
+  print('SUMMARY_EVIDENCE|evidence_count=' + count);
+})();
+```
+
+## Script 2 の結果の使い方
+
+説明資料には、この行を使います。
+
+```text
+EVIDENCE|RESOURCE_ID_COLLISION_CHECK
+```
+
+見せたいポイントは以下です。
+
+```text
+同じ ResourceID が it_prod / ot_prodE の両方に存在する
+it_prod と ot_prodE で Name / Serial / IP が異なる
+にもかかわらず sys_object_source は同じ旧 connectionid で target_sys_id を持っている
+```
+
+これで「ResourceID だけでは別MCM間で一意ではなく、connectionid 分離が必要」という説明ができます。
+
+---
+
+# Script 3：MAP を使って sys_object_source を修正
+
+これは **更新系** です。
+最初は必ず `DRY_RUN = true` で実行してください。
+
+SQL修正後の ot_prodE 側 connectionid を `NEW_CONN` に設定してください。
+
+`MAP` は Script 1 の `COPYABLE MAP` を貼り付けます。`MAP_REVIEW` で確認したものも、正しいと判断できたら手動で追加してください。
+
+```javascript
+(function () {
+  var DRY_RUN = true; // ★確認後に false に変更
+
+  var SOURCE_NAME = 'SG-SCCM';
+
+  // 旧・共通 connectionid
+  var OLD_CONN = '03066860c7122010b56243ac95c26027';
+
+  // ★SQL修正後の ot_prodE 側 正しい connectionid
+  var NEW_CONN = 'ot_prodE側の正しいconnectionid';
+
+  // ★Script 1 の COPYABLE MAP をここに貼り付ける
+  var MAP = {
+    /*
+    '16777219': { ci: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', expected_name: 'EDR-SOT-I-PS01' },
+    '16777220': { ci: 'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy', expected_name: 'EDR-SOT-I-DP01' }
+    */
+  };
+
+  function log(msg) {
+    gs.info('[SG-SCCM IDENTITY FIX] ' + msg);
+  }
+
+  function warn(msg) {
+    gs.warn('[SG-SCCM IDENTITY FIX] ' + msg);
+  }
+
+  function verifyCI(resourceId, ciSysId) {
+    var ci = new GlideRecord('cmdb_ci');
+
+    if (!ci.get(ciSysId)) {
+      warn('CI_NOT_FOUND|resource_id=' + resourceId + '|ci=' + ciSysId);
+      return false;
+    }
+
+    log('CI_FOUND' +
+      '|resource_id=' + resourceId +
+      '|ci=' + ci.getUniqueValue() +
+      '|class=' + ci.getValue('sys_class_name') +
+      '|name=' + ci.getValue('name') +
+      '|host_name=' + (ci.isValidField('host_name') ? ci.getValue('host_name') : '') +
+      '|ip=' + (ci.isValidField('ip_address') ? ci.getValue('ip_address') : '') +
+      '|serial=' + (ci.isValidField('serial_number') ? ci.getValue('serial_number') : ''));
+
+    return true;
+  }
+
+  function getExactSources(resourceId, conn) {
+    var key = resourceId + '|' + conn;
+    var out = [];
+
+    var gr = new GlideRecord('sys_object_source');
+    gr.addQuery('name', SOURCE_NAME);
+    gr.addQuery('id', key); // 完全一致。ComputerRelatedOU / Serial は対象外
+    gr.orderBy('sys_created_on');
+    gr.query();
+
+    while (gr.next()) {
+      out.push(gr.getUniqueValue());
+    }
+
+    return out;
+  }
+
+  function getSource(sysId) {
+    var gr = new GlideRecord('sys_object_source');
+    if (gr.get(sysId)) {
+      return gr;
+    }
+    return null;
+  }
+
+  function migrateOrFixIdentitySource(resourceId, targetCiSysId) {
+    var oldKey = resourceId + '|' + OLD_CONN;
+    var newKey = resourceId + '|' + NEW_CONN;
+
+    var oldSources = getExactSources(resourceId, OLD_CONN);
+    var newSources = getExactSources(resourceId, NEW_CONN);
+
+    var keepSourceSysId = '';
+
+    if (newSources.length > 0) {
+      // 新キーが既にある場合：新キーの1件目を残して target を修正
+      keepSourceSysId = newSources[0];
+
+      var keepNew = getSource(keepSourceSysId);
+      if (keepNew) {
+        log('KEEP_UPDATE_NEW_SOURCE' +
+          '|resource_id=' + resourceId +
+          '|source_sys_id=' + keepNew.getUniqueValue() +
+          '|id=' + keepNew.getValue('id') +
+          '|old_target=' + keepNew.getValue('target_sys_id') +
+          '|new_target=' + targetCiSysId);
+
+        if (!DRY_RUN) {
+          keepNew.setValue('target_sys_id', targetCiSysId);
+          keepNew.update();
+        }
+      }
+
+      // 新キー重複は削除
+      for (var i = 1; i < newSources.length; i++) {
+        var dupNew = getSource(newSources[i]);
+        if (!dupNew) {
+          continue;
+        }
+
+        log('DELETE_DUPLICATE_NEW_SOURCE' +
+          '|resource_id=' + resourceId +
+          '|source_sys_id=' + dupNew.getUniqueValue() +
+          '|id=' + dupNew.getValue('id') +
+          '|target=' + dupNew.getValue('target_sys_id'));
+
+        if (!DRY_RUN) {
+          dupNew.deleteRecord();
+        }
+      }
+
+      // 旧キーは削除
+      for (var j = 0; j < oldSources.length; j++) {
+        var oldDel = getSource(oldSources[j]);
+        if (!oldDel) {
+          continue;
+        }
+
+        log('DELETE_OLD_SOURCE' +
+          '|resource_id=' + resourceId +
+          '|source_sys_id=' + oldDel.getUniqueValue() +
+          '|id=' + oldDel.getValue('id') +
+          '|target=' + oldDel.getValue('target_sys_id'));
+
+        if (!DRY_RUN) {
+          oldDel.deleteRecord();
+        }
+      }
+
+    } else if (oldSources.length > 0) {
+      // 新キーが無く、旧キーがある場合：旧キー1件を新キーへ移行
+      keepSourceSysId = oldSources[0];
+
+      var migrate = getSource(keepSourceSysId);
+      if (migrate) {
+        log('MIGRATE_OLD_TO_NEW_SOURCE' +
+          '|resource_id=' + resourceId +
+          '|source_sys_id=' + migrate.getUniqueValue() +
+          '|old_id=' + migrate.getValue('id') +
+          '|new_id=' + newKey +
+          '|old_target=' + migrate.getValue('target_sys_id') +
+          '|new_target=' + targetCiSysId);
+
+        if (!DRY_RUN) {
+          migrate.setValue('id', newKey);
+          migrate.setValue('target_sys_id', targetCiSysId);
+          migrate.update();
+        }
+      }
+
+      // 残りの旧キーは削除
+      for (var k = 1; k < oldSources.length; k++) {
+        var oldDup = getSource(oldSources[k]);
+        if (!oldDup) {
+          continue;
+        }
+
+        log('DELETE_DUPLICATE_OLD_SOURCE' +
+          '|resource_id=' + resourceId +
+          '|source_sys_id=' + oldDup.getUniqueValue() +
+          '|id=' + oldDup.getValue('id') +
+          '|target=' + oldDup.getValue('target_sys_id'));
+
+        if (!DRY_RUN) {
+          oldDup.deleteRecord();
+        }
+      }
+
+    } else {
+      warn('NO_OLD_OR_NEW_SOURCE_FOUND' +
+        '|resource_id=' + resourceId +
+        '|old_id=' + oldKey +
+        '|new_id=' + newKey +
+        '|message=Computer Identity Import後に新規作成される可能性があります');
+    }
+  }
+
+  function postCheck(resourceId, expectedCi) {
+    var oldCount = 0;
+    var newCount = 0;
+
+    var oldKey = resourceId + '|' + OLD_CONN;
+    var newKey = resourceId + '|' + NEW_CONN;
+
+    var oldGr = new GlideRecord('sys_object_source');
+    oldGr.addQuery('name', SOURCE_NAME);
+    oldGr.addQuery('id', oldKey);
+    oldGr.query();
+
+    while (oldGr.next()) {
+      oldCount++;
+      log('POSTCHECK_OLD_SOURCE_REMAINED' +
+        '|resource_id=' + resourceId +
+        '|source_sys_id=' + oldGr.getUniqueValue() +
+        '|id=' + oldGr.getValue('id') +
+        '|target=' + oldGr.getValue('target_sys_id'));
+    }
+
+    var newGr = new GlideRecord('sys_object_source');
+    newGr.addQuery('name', SOURCE_NAME);
+    newGr.addQuery('id', newKey);
+    newGr.query();
+
+    while (newGr.next()) {
+      newCount++;
+      log('POSTCHECK_NEW_SOURCE' +
+        '|resource_id=' + resourceId +
+        '|source_sys_id=' + newGr.getUniqueValue() +
+        '|id=' + newGr.getValue('id') +
+        '|target=' + newGr.getValue('target_sys_id') +
+        '|expected_target=' + expectedCi +
+        '|ok=' + (newGr.getValue('target_sys_id') === expectedCi));
+    }
+
+    log('POSTCHECK_COUNT' +
+      '|resource_id=' + resourceId +
+      '|old_source_count=' + oldCount +
+      '|new_source_count=' + newCount);
+  }
+
+  var total = 0;
+  var skipped = 0;
+
+  for (var resourceId in MAP) {
+    total++;
+
+    var targetCiSysId = MAP[resourceId].ci;
+
+    if (!targetCiSysId) {
+      warn('SKIP_MAP_NO_CI|resource_id=' + resourceId);
+      skipped++;
+      continue;
+    }
+
+    if (!verifyCI(resourceId, targetCiSysId)) {
+      skipped++;
+      continue;
+    }
+
+    migrateOrFixIdentitySource(resourceId, targetCiSysId);
+    postCheck(resourceId, targetCiSysId);
+  }
+
+  log('DONE|DRY_RUN=' + DRY_RUN + '|total=' + total + '|skipped=' + skipped);
+})();
+```
+
+## Script 3 の実行手順
+
+最初は必ず：
+
+```javascript
+var DRY_RUN = true;
+```
+
+で実行します。
+
+ログで以下を確認します。
+
+```text
+MIGRATE_OLD_TO_NEW_SOURCE
+KEEP_UPDATE_NEW_SOURCE
+DELETE_OLD_SOURCE
+DELETE_DUPLICATE_OLD_SOURCE
+DELETE_DUPLICATE_NEW_SOURCE
+```
+
+内容が正しければ：
+
+```javascript
+var DRY_RUN = false;
+```
+
+にして再実行します。
+
+期待状態は以下です。
+
+```text
+旧 connectionid の source count = 0
+新 connectionid の source count = 1
+新 connectionid の target_sys_id = MAP の ci
+```
+
+---
+
+## この後の作業
+
+Script 3 実行後、対象ResourceIDだけ Computer Identity を再Importします。
+
+```sql
+WHERE v_GS_COMPUTER_SYSTEM.ResourceID IN (...)
+```
+
+その後、確認します。
+
+```text
+Name / Serial / Host name / IP が ot_prodE の MCM値に戻っている
+sys_object_source が再重複していない
+general 側Importで broadcast CI が更新されない
+```
+
+問題なければ、最後に対象限定条件を外して、通常の Full Pull / Scheduled Import 再開でよいです。
+
+
+
+
+
+
+
+
+
+
 はい。洗い出しは **`sys_object_source` を中心に見る**のが一番早いです。
 見るべきパターンはこの2つです。
 
