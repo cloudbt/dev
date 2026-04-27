@@ -1,4 +1,42 @@
 
+
+正しい対応：
+  1. Scheduled Import停止
+  2. SQLの connectionid 分離
+  3. sys_object_source の誤紐付けを修正
+  4. MCMから再Import
+
+
+
+
+1. Scheduled Import 停止
+2. Computer Identity SQL の connectionid 修正
+3. 問題 ResourceID / target_sys_id の洗い出し
+4. Computer Identity の sys_object_source のみ修正
+5. 対象 ResourceID だけ再Import
+6. MCM値に戻ったことを確認
+7. 全件再Import / Scheduled Import 再開
+
+
+
+本番作業の流れ
+1. SG-SCCM Scheduled Import 停止
+2. Computer Identity SQL の connectionid を修正
+3. Load All Records で Import Set の connectionid が正しいことを確認
+4. 問題ResourceIDを洗い出す
+5. ResourceID → 正しいCI sys_id の MAP を作成
+6. 修正版 Script を DRY_RUN=true で実行
+7. ログ確認
+8. DRY_RUN=false で実行
+9. Post-check Script で確認
+10. 対象ResourceIDだけ Computer Identity 再Import
+11. Name / Serial / Host name / IP がMCM値に戻るか確認
+12. 問題なければ全件 Full Pull
+13. 子 Data Source 実行
+14. Scheduled Import 再開
+
+
+
 はい。`it_prod` 側が複数 ISET に分割される前提で、**Import Set 番号を配列で複数指定できる版**に直せます。
 
 下記スクリプトは読み取り専用です。
