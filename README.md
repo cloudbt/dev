@@ -1,4 +1,554 @@
 
+はい。以下が実装版です。
+これは **読み取り専用** で、更新・削除はしません。
+
+やることは以下です。
+
+```text
+sys_object_source の ID = ResourceID|ConnectionID を分解
+↓
+sys_object_source.sys_created_by と同じ created_by の
+sn_sccm_integrate_sccm_2019_computer_id 最新行を取得
+↓
+MCM側の name / serial と、Target CI の name / serial_number を比較
+↓
+違うものだけ RESULT|MISMATCH として出力
+```
+
+---
+
+## 問題 ResourceID 洗い出しスクリプト
+
+```javascript
+(function () {
+  var SOURCE_NAME = 'SG-SCCM';
+  var SOURCE_FEED_CONTAINS = 'SG-SCCM Computer Identity';
+
+  var IMPORT_TABLE = 'sn_sccm_integrate_sccm_2019_computer_id';
+
+  // ★対象 connectionid。現状の旧・共通 connectionid を指定
+  var CONNECTION_IDS = [
+    '03066860c7122010b56243ac95c26027'
+  ];
+
+  // ★created_by から it / ot を判定
+  var SIDE_BY_CREATED_BY = {
+    'sg_sccm_job_user_general': 'it_prod',
+    'sg_sccm_job_user_broadcast': 'ot_prodE'
+  };
+
+  // ★基本は true 推奨。想定外 created_by は WARN として出す
+  var ONLY_JOB_USERS = true;
+
+  // 任意。期間を絞る場合だけ設定。空なら期間条件なし。
+  var IMPORT_ROW_START = '';
+  // 例:
+  // var IMPORT_ROW_START = '2026-04-20 00:00:00';
+
+  var PRINT_MATCHED = false;
+  var PRINT_NO_IMPORT_ROW = true;
+  var PRINT_CREATED_BY_UNKNOWN = true;
+
+  function print(msg) {
+    gs.print(msg);
+  }
+
+  function normalizeName(v) {
+    return (v || '').toString().trim().toLowerCase();
+  }
+
+  function normalizeSerial(v) {
+    return (v || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/-/g, '');
+  }
+
+  function esc(v) {
+    return (v || '').toString().replace(/\|/g, '/');
+  }
+
+  function inArray(arr, value) {
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i] === value) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function countKeys(obj) {
+    var c = 0;
+    for (var k in obj) {
+      c++;
+    }
+    return c;
+  }
+
+  function pickField(tableName, candidates) {
+    var gr = new GlideRecord(tableName);
+    for (var i = 0; i < candidates.length; i++) {
+      if (gr.isValidField(candidates[i])) {
+        return candidates[i];
+      }
+    }
+    return '';
+  }
+
+  function getValue(gr, field) {
+    if (!field || !gr.isValidField(field)) {
+      return '';
+    }
+    return gr.getValue(field) || '';
+  }
+
+  function parseSourceId(sourceId) {
+    // 対象:
+    // 167793178|03066860c7122010b56243ac95c26027
+    //
+    // 除外:
+    // 167793178|03066860...|ComputerRelatedOU
+    // VMware-xxx||BIOS||167793178||03066860...
+    var parts = sourceId.split('|');
+
+    if (parts.length !== 2) {
+      return null;
+    }
+
+    var resourceId = parts[0];
+    var conn = parts[1];
+
+    if (!/^\d+$/.test(resourceId)) {
+      return null;
+    }
+
+    if (!inArray(CONNECTION_IDS, conn)) {
+      return null;
+    }
+
+    return {
+      resource_id: resourceId,
+      connection_id: conn
+    };
+  }
+
+  function getSide(createdBy) {
+    return SIDE_BY_CREATED_BY[createdBy] || 'unknown';
+  }
+
+  function getMcmSerial(row) {
+    if (row.bios) {
+      return row.bios;
+    }
+    if (row.system_serial) {
+      return row.system_serial;
+    }
+    if (row.chassis_serial) {
+      return row.chassis_serial;
+    }
+    return '';
+  }
+
+  function getTargetRecord(targetTable, targetSysId) {
+    var tableName = targetTable || 'cmdb_ci';
+
+    var gr = new GlideRecord(tableName);
+    if (gr.isValid() && gr.get(targetSysId)) {
+      return gr;
+    }
+
+    // fallback
+    var ci = new GlideRecord('cmdb_ci');
+    if (ci.get(targetSysId)) {
+      return ci;
+    }
+
+    return null;
+  }
+
+  function chunkArray(arr, size) {
+    var out = [];
+    for (var i = 0; i < arr.length; i += size) {
+      out.push(arr.slice(i, i + size));
+    }
+    return out;
+  }
+
+  var RESOURCE_FIELD = pickField(IMPORT_TABLE, [
+    'u_resourceid',
+    'u_resource_id',
+    'resourceid',
+    'resource_id'
+  ]);
+
+  var CONNECTION_FIELD = pickField(IMPORT_TABLE, [
+    'u_connectionid',
+    'u_connection_id',
+    'connectionid',
+    'connection_id'
+  ]);
+
+  var NAME_FIELD = pickField(IMPORT_TABLE, [
+    'u_name',
+    'name'
+  ]);
+
+  var BIOS_FIELD = pickField(IMPORT_TABLE, [
+    'u_biosserialnumber',
+    'u_bios_serial_number',
+    'biosserialnumber',
+    'bios_serial_number'
+  ]);
+
+  var SYSTEM_SERIAL_FIELD = pickField(IMPORT_TABLE, [
+    'u_systemserialnumber',
+    'u_system_serial_number',
+    'systemserialnumber',
+    'system_serial_number'
+  ]);
+
+  var CHASSIS_SERIAL_FIELD = pickField(IMPORT_TABLE, [
+    'u_chassisserialnumber',
+    'u_chassis_serial_number',
+    'chassisserialnumber',
+    'chassis_serial_number'
+  ]);
+
+  if (!RESOURCE_FIELD || !CONNECTION_FIELD || !NAME_FIELD) {
+    print('ERROR|IMPORT_TABLE_FIELD_NOT_FOUND' +
+      '|resource_field=' + RESOURCE_FIELD +
+      '|connection_field=' + CONNECTION_FIELD +
+      '|name_field=' + NAME_FIELD);
+    return;
+  }
+
+  print('INFO|FIELDS' +
+    '|resource=' + RESOURCE_FIELD +
+    '|connection=' + CONNECTION_FIELD +
+    '|name=' + NAME_FIELD +
+    '|bios=' + BIOS_FIELD +
+    '|system_serial=' + SYSTEM_SERIAL_FIELD +
+    '|chassis_serial=' + CHASSIS_SERIAL_FIELD);
+
+  // 1. sys_object_source を取得
+  var sources = [];
+  var resourceIdSet = {};
+  var createdBySet = {};
+  var candidateSourceCount = 0;
+  var skippedNonIdentity = 0;
+  var skippedCreatedBy = 0;
+  var createdByUnknownCount = 0;
+
+  var sos = new GlideRecord('sys_object_source');
+  sos.addQuery('name', SOURCE_NAME);
+
+  var qc = sos.addQuery('id', 'CONTAINS', CONNECTION_IDS[0]);
+  for (var ciIdx = 1; ciIdx < CONNECTION_IDS.length; ciIdx++) {
+    qc.addOrCondition('id', 'CONTAINS', CONNECTION_IDS[ciIdx]);
+  }
+
+  if (sos.isValidField('target_table')) {
+    sos.addQuery('target_table', 'CONTAINS', 'cmdb_ci');
+  }
+
+  sos.query();
+
+  while (sos.next()) {
+    var sourceId = sos.getValue('id');
+    var parsed = parseSourceId(sourceId);
+
+    if (!parsed) {
+      skippedNonIdentity++;
+      continue;
+    }
+
+    if (sos.isValidField('source_feed') && SOURCE_FEED_CONTAINS) {
+      var feedDisplay = sos.getDisplayValue('source_feed') || '';
+      if (feedDisplay.indexOf(SOURCE_FEED_CONTAINS) < 0) {
+        continue;
+      }
+    }
+
+    var sourceCreatedBy = sos.getValue('sys_created_by');
+    var side = getSide(sourceCreatedBy);
+
+    if (side === 'unknown') {
+      createdByUnknownCount++;
+
+      if (PRINT_CREATED_BY_UNKNOWN) {
+        print('RESULT|CREATED_BY_UNKNOWN' +
+          '|resource_id=' + parsed.resource_id +
+          '|connection_id=' + parsed.connection_id +
+          '|source_id=' + esc(sourceId) +
+          '|source_sys_id=' + sos.getUniqueValue() +
+          '|source_created_by=' + sourceCreatedBy +
+          '|target_sys_id=' + sos.getValue('target_sys_id') +
+          '|target_table=' + (sos.isValidField('target_table') ? sos.getValue('target_table') : ''));
+      }
+
+      if (ONLY_JOB_USERS) {
+        skippedCreatedBy++;
+        continue;
+      }
+    }
+
+    candidateSourceCount++;
+
+    var rec = {
+      resource_id: parsed.resource_id,
+      connection_id: parsed.connection_id,
+      source_id: sourceId,
+      source_sys_id: sos.getUniqueValue(),
+      source_created_by: sourceCreatedBy,
+      source_updated_by: sos.getValue('sys_updated_by'),
+      side: side,
+      target_sys_id: sos.getValue('target_sys_id'),
+      target_table: sos.isValidField('target_table') ? sos.getValue('target_table') : ''
+    };
+
+    sources.push(rec);
+    resourceIdSet[parsed.resource_id] = true;
+    createdBySet[sourceCreatedBy] = true;
+  }
+
+  // 2. 中間テーブルの最新行を preload
+  var resourceIds = [];
+  for (var rid in resourceIdSet) {
+    resourceIds.push(rid);
+  }
+
+  var createdBys = [];
+  for (var cb in createdBySet) {
+    createdBys.push(cb);
+  }
+
+  var importLatest = {};
+  var resourceChunks = chunkArray(resourceIds, 500);
+
+  for (var ch = 0; ch < resourceChunks.length; ch++) {
+    var imp = new GlideRecord(IMPORT_TABLE);
+    imp.addQuery(RESOURCE_FIELD, 'IN', resourceChunks[ch].join(','));
+    imp.addQuery(CONNECTION_FIELD, 'IN', CONNECTION_IDS.join(','));
+
+    if (createdBys.length > 0) {
+      imp.addQuery('sys_created_by', 'IN', createdBys.join(','));
+    }
+
+    if (IMPORT_ROW_START) {
+      imp.addQuery('sys_created_on', '>=', IMPORT_ROW_START);
+    }
+
+    imp.orderByDesc('sys_created_on');
+    imp.query();
+
+    while (imp.next()) {
+      var impRid = getValue(imp, RESOURCE_FIELD);
+      var impConn = getValue(imp, CONNECTION_FIELD);
+      var impCreatedBy = imp.getValue('sys_created_by');
+
+      var key = impRid + '|' + impConn + '|' + impCreatedBy;
+
+      // orderByDesc のため、最初に見つかったものが最新
+      if (importLatest[key]) {
+        continue;
+      }
+
+      importLatest[key] = {
+        resource_id: impRid,
+        connection_id: impConn,
+        created_by: impCreatedBy,
+        row_sys_id: imp.getUniqueValue(),
+        row_created_on: imp.getValue('sys_created_on'),
+        name: getValue(imp, NAME_FIELD),
+        bios: getValue(imp, BIOS_FIELD),
+        system_serial: getValue(imp, SYSTEM_SERIAL_FIELD),
+        chassis_serial: getValue(imp, CHASSIS_SERIAL_FIELD)
+      };
+
+      importLatest[key].serial = getMcmSerial(importLatest[key]);
+    }
+  }
+
+  // 3. 比較
+  var checkedCount = 0;
+  var mismatchCount = 0;
+  var noImportRowCount = 0;
+  var targetNotFoundCount = 0;
+  var matchedCount = 0;
+  var nameDiffCount = 0;
+  var serialDiffCount = 0;
+  var nameAndSerialDiffCount = 0;
+
+  for (var i = 0; i < sources.length; i++) {
+    var s = sources[i];
+
+    var importKey = s.resource_id + '|' + s.connection_id + '|' + s.source_created_by;
+    var mcm = importLatest[importKey];
+
+    if (!mcm) {
+      noImportRowCount++;
+
+      if (PRINT_NO_IMPORT_ROW) {
+        print('RESULT|NO_IMPORT_ROW' +
+          '|resource_id=' + s.resource_id +
+          '|side=' + s.side +
+          '|connection_id=' + s.connection_id +
+          '|source_sys_id=' + s.source_sys_id +
+          '|source_id=' + esc(s.source_id) +
+          '|source_created_by=' + s.source_created_by +
+          '|target_sys_id=' + s.target_sys_id +
+          '|target_table=' + s.target_table);
+      }
+
+      continue;
+    }
+
+    var target = getTargetRecord(s.target_table, s.target_sys_id);
+
+    if (!target) {
+      targetNotFoundCount++;
+
+      print('RESULT|TARGET_NOT_FOUND' +
+        '|resource_id=' + s.resource_id +
+        '|side=' + s.side +
+        '|mcm_name=' + esc(mcm.name) +
+        '|mcm_serial=' + esc(mcm.serial) +
+        '|target_sys_id=' + s.target_sys_id +
+        '|target_table=' + s.target_table +
+        '|source_sys_id=' + s.source_sys_id +
+        '|source_created_by=' + s.source_created_by);
+
+      continue;
+    }
+
+    checkedCount++;
+
+    var targetName = target.isValidField('name') ? target.getValue('name') : '';
+    var targetSerial = target.isValidField('serial_number') ? target.getValue('serial_number') : '';
+
+    var nameDiff = false;
+    var serialDiff = false;
+
+    if (mcm.name) {
+      nameDiff = normalizeName(mcm.name) !== normalizeName(targetName);
+    }
+
+    if (mcm.serial) {
+      serialDiff = normalizeSerial(mcm.serial) !== normalizeSerial(targetSerial);
+    }
+
+    if (!nameDiff && !serialDiff) {
+      matchedCount++;
+
+      if (PRINT_MATCHED) {
+        print('RESULT|MATCHED' +
+          '|resource_id=' + s.resource_id +
+          '|side=' + s.side +
+          '|mcm_name=' + esc(mcm.name) +
+          '|mcm_serial=' + esc(mcm.serial) +
+          '|target_name=' + esc(targetName) +
+          '|target_serial=' + esc(targetSerial) +
+          '|target_sys_id=' + s.target_sys_id +
+          '|target_table=' + s.target_table +
+          '|source_sys_id=' + s.source_sys_id +
+          '|source_created_by=' + s.source_created_by);
+      }
+
+      continue;
+    }
+
+    mismatchCount++;
+
+    var mismatchType = '';
+    if (nameDiff && serialDiff) {
+      mismatchType = 'NAME_AND_SERIAL';
+      nameAndSerialDiffCount++;
+    } else if (nameDiff) {
+      mismatchType = 'NAME';
+      nameDiffCount++;
+    } else if (serialDiff) {
+      mismatchType = 'SERIAL';
+      serialDiffCount++;
+    }
+
+    print('RESULT|MISMATCH' +
+      '|resource_id=' + s.resource_id +
+      '|side=' + s.side +
+      '|mcm_name=' + esc(mcm.name) +
+      '|mcm_serial=' + esc(mcm.serial) +
+      '|target_name=' + esc(targetName) +
+      '|target_serial=' + esc(targetSerial) +
+      '|target_sys_id=' + s.target_sys_id +
+      '|target_table=' + s.target_table +
+      '|source_sys_id=' + s.source_sys_id +
+      '|source_created_by=' + s.source_created_by +
+      '|mismatch_type=' + mismatchType +
+      '|connection_id=' + s.connection_id +
+      '|import_row_sys_id=' + mcm.row_sys_id +
+      '|import_row_created_on=' + mcm.row_created_on +
+      '|source_updated_by=' + s.source_updated_by);
+  }
+
+  print('SUMMARY' +
+    '|candidate_source_count=' + candidateSourceCount +
+    '|checked_source_count=' + checkedCount +
+    '|mismatch_count=' + mismatchCount +
+    '|matched_count=' + matchedCount +
+    '|no_import_row_count=' + noImportRowCount +
+    '|target_not_found_count=' + targetNotFoundCount +
+    '|created_by_unknown_count=' + createdByUnknownCount +
+    '|skipped_created_by_count=' + skippedCreatedBy +
+    '|skipped_non_identity_count=' + skippedNonIdentity +
+    '|name_diff_count=' + nameDiffCount +
+    '|serial_diff_count=' + serialDiffCount +
+    '|name_and_serial_diff_count=' + nameAndSerialDiffCount +
+    '|resource_id_count=' + resourceIds.length);
+})();
+```
+
+---
+
+## 出力で見るべき行
+
+主にこの行を見てください。
+
+```text
+RESULT|MISMATCH
+```
+
+出力例：
+
+```text
+RESULT|MISMATCH|resource_id=167793178|side=it_prod|mcm_name=24A00055|mcm_serial=74060646H|target_name=22A26769|target_serial=6214006H|target_sys_id=xxxx|target_table=cmdb_ci_computer|source_sys_id=yyyy|source_created_by=sg_sccm_job_user_general|mismatch_type=NAME_AND_SERIAL
+```
+
+この `resource_id` が問題候補です。
+
+---
+
+## 結果の扱い方
+
+`RESULT|MISMATCH` を Excel に貼り、区切り文字 `|` で分割してください。
+
+優先度は以下です。
+
+```text
+mismatch_type = NAME_AND_SERIAL
+  → 最優先で確認
+
+mismatch_type = NAME
+  → Serial重複ケースの可能性あり。要確認
+
+mismatch_type = SERIAL
+  → Nameは同じだがSerial違い。要確認
+```
+
+`RESULT|NO_IMPORT_ROW` が多い場合は、`sn_sccm_integrate_sccm_2019_computer_id` 側に同じ `ResourceID + ConnectionID + Created by` の行が残っていない可能性があります。その場合は、Load All Records 後のImport Setを使った比較方式に切り替えた方がよいです。
+
+
+
 
 正しい対応：
   1. Scheduled Import停止
