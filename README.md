@@ -1,26 +1,53 @@
-承知しました。データ方向と追加費用列を削除した版です。
+お世話になっております。
+
+以前ご回答いただいた「SCCM 由来の CI を削除する」方針について、実施前に影響範囲を確認したく、以下2点についてご教示をお願いいたします。
 
 ---
 
-# ServiceNow-Tanium 15分連携 3案比較(改訂版)
+【質問①】Computer テーブルの CI ID への影響について
 
-**目的:** Tanium Asset 1時間更新制約を回避し、Tanium 1,000台のCMDB 15分間隔同期を実現
-**前提:** ServiceNow = SaaS(Now Platform)、MID Server = 既存配置済
+SCCM 由来の CI を削除した場合、既存の Computer テーブルに登録されている CI の CI ID はそのまま維持されるという認識ですが、この理解は正しいでしょうか。
 
-| No | 案 | 概要 | 追加必要なもの<br>(Tanium導入形態別) | 変更規模 | リアルタイム性 | **懸念点** |
-|:-:|---|---|---|:-:|:-:|---|
-| **①** | **Tanium<br>Connect Push** | Tanium側で定期/イベントトリガにより、ServiceNow **Import Set API** へPush配信 | **Tanium側:** Connectモジュール **(別売)**<br>**Snow側:** **Import Set API利用(標準API、自作不要)**<br><br>**Cloud:** Snowへ直接配信(egress allow list設定要)<br>**オンプレ:** ファイアウォール経由でSnowへ送信 | **中**<br>(5~8人日) | **即時Push可** | • **Connectモジュールが別売ライセンス**、契約状況の確認が前提<br>• Push失敗時の **再送/補填設計** が必要(Connect側のリトライ機能は限定的)<br>• Snow側で「**データが来ない**」状況の死活監視が必要<br>• Tanium Cloud時は egress allow list 運用が発生<br>• Saved Question取得結果がスナップショット型、変更検知の細かさに限界 |
-| **②** | **Tanium SDK 経由** | ServiceNow側から Tanium API Gateway (GraphQL) へ定期Pull取得。Tanium公式無料SDKが認証・リトライ・ページング等を抽象化 | **Tanium側:** API Gatewayモジュール(無料で導入可)<br>**Snow側:** Tanium SDK(無料Store App)<br><br>**Cloud:** API Gateway標準搭載、MID Server不要<br>**オンプレ:** API Gatewayを無料インポート、MID Server経由 | **中**<br>(7~10人日) | 15分Pull | • API Gatewayモジュールの **Tanium側導入作業** が必要(無料だが調整要)<br>• Snow Store からの **公式アプリ導入** に社内承認プロセスが必要な場合あり<br>• SDKの **バージョンアップ追従** が継続的に必要<br>• SDK抽象化に乗るため、細かい挙動カスタマイズに制約<br>• Pull型のため **15分間隔が上限** |
-| **③** | **REST API<br>直接コール** | MID Server経由でTanium Platform REST APIを直接コール、認証・リトライ等全て自作 | なし(既存機能で完結)<br><br>**Cloud:** Token認証のみ、MID Server不要<br>**オンプレ:** Basic/Token両対応、MID Server経由 | **大**<br>(17~25人日) | 15分Pull | • Token Rotation・エラーハンドリング・ページネーション等 **全て自作・自前品質保証**<br>• Tanium公式は **Platform REST APIの統合用途を段階的廃止**、中長期で API Gateway 移行が必要な可能性<br>• 開発者依存で **属人化リスク** が高い<br>• Tanium公式サポート範囲外、トラブル時はコミュニティ頼み<br>• Pull型のため **15分間隔が上限** |
+なお、CI Source および CMDB Serial Number については変更される可能性があることは認識しております。念のため確認ですが、Computer CI ID 自体が変わらないかどうかについて、あっていますかでしょうか？
 
 ---
 
-## 採用判断
+【質問②】Computer テーブル以外の関連テーブルへの影響について
 
-- **API Gateway 利用可** → **案①(Connect Push)** を採用(リアルタイム性最優先)
-- **API Gateway 利用不可** → **案③(REST API直接)** を採用(Platform REST APIで確実に実現可能)
-- **案②(SDK)** は、API Gateway利用可だが Connect ライセンス未保有の場合の代替案
+Serial Number テーブルのレコードが Computer テーブルの親テーブルのレコードと紐付いております。削除してImportで再作成すると紐づけも正しく直されると想定しますが
+
+SCCM 由来の SourceのCI を削除し CI Mapping を修正する対応において、Computer テーブルおよびその他の関連テーブルのデータへの影響はないですかね。ご認識があっていますか。
+
+とくにマッピング修正以外に、既存レコードのCIとの関係性（Relationship）やデータ整合性に悪影響はありませんか。
+---
+
+以上、ご確認のほどよろしくお願いいたします。
+
+
+
+お世話になっております。
+
+以前ご回答いただいた「SCCM 由来の CI を削除する」方針について、実施前に影響範囲を確認したく、以下 2 点についてご教示をお願いいたします。
 
 ---
 
-これでよろしいでしょうか?問題なければPPT化に進みます。
+【質問①】既存 CI の Sys ID およびリレーションシップへの影響について
+
+既存の Computer テーブル（cmdb_ci_computer）のレコードを保持したまま、SCCM 由来の CI を削除し、関連するソースデータやシリアルナンバーを再投入した場合、以下の点に悪影響はないかご確認をお願いいたします。
+
+・既存レコードの Sys ID は変わらず維持されるか
+・他の CI とのリレーションシップ（Relationship）は保持されるか
+
+なお、CI Source および CMDB Serial Number については変更される可能性があることは認識しております。Sys ID 自体が変わらないかどうかについて、明確にご回答いただけますと幸いです。
+
+---
+
+【質問②】関連テーブルのデータ整合性への影響について
+
+弊環境では、Serial Number が cmdb_ci_computer および親テーブル（Computer Hardware 等）のレコードと紐付いております。
+
+CI Mapping の修正以外に、これらのテーブルのデータ整合性が損なわれるリスクはありますでしょうか。影響が想定される場合は、対象となるテーブル名・フィールド名を具体的にご教示いただけますと助かります。
+
+---
+
+以上、ご確認のほどよろしくお願いいたします。
