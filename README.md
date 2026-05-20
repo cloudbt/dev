@@ -1,3 +1,4 @@
+```
 (function () {
   var SOURCE_NAME = 'SG-SCCM';
   var OLD_CONN = '03066860c7122010b56243ac95c26027';
@@ -417,3 +418,4 @@
     '|ot_resource_count=' + Object.keys(otRows).length +
     '|source_resource_count=' + Object.keys(sourceByRid).length);
 })();
+```
