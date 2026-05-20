@@ -1,53 +1,419 @@
-## 会議文字起こし（訂正版）
+(function () {
+  var SOURCE_NAME = 'SG-SCCM';
+  var OLD_CONN = '03066860c7122010b56243ac95c26027';
 
-> ※ 文脈から推定して訂正しています。主な誤認識箇所に【】で補足を付けます。
+  // it_prod 側の Load All Records ISET を複数指定
+  var IT_IMPORT_SET_NUMBERS = [
+    'ISET_IT_000001',
+    'ISET_IT_000002'
+  ];
 
----
+  // ot_prodE 側の Load All Records ISET を複数指定
+  var OT_IMPORT_SET_NUMBERS = [
+    'ISET_OT_000001'
+  ];
 
-「はい、お疲れ様です。今日の動き方についての確認なんですけど、まず【サポート】からの回答で、確実性を取るなら全部消した方がいいよね、という話だったかなと思うんですけど、その元々の質問で投げていた『影響を教えて』というところで回答をもらえていないと思っていて、その認識はありますか。」
+  // true = 問題候補だけ出力
+  var ONLY_MISMATCH = true;
 
-「そうですね。インポートすることになるので、時間がかかることだけ言われましたね。他の影響については特に言われなかったです。」
+  var IT_CREATED_BY = 'sg_sccm_job_user_general';
+  var OT_CREATED_BY = 'sg_sccm_job_user_broadcast';
 
-「【矢田】さんも言っていた、その CI ID が変わるから紐付けがどうなるのか、というところ。」
+  function log(msg) {
+    gs.print(msg);
+  }
 
-「【コンピューター】の CI ID は変わらないはずですよ。コンピューターの ID はそのまま残るで、CI Source と CMDB Serial Number は【変わり】ますね。そのことによって、コンピューター以外のレコードとかに関係があるのかというところをクリアにしてもいいのかな、と思いました。」
+  function normName(v) {
+    return (v || '').toString().trim().toLowerCase();
+  }
 
-「わかりました。そうですね。じゃあどうしようかな。質問としては、既存のコンピューターテーブルに影響がないですよね、というところ。でも【サポート】から言わなくても【古長】さんに『じゃあこの方法でいいでしょ』と言わせるための材料として何が必要かなと考えた時に、サポートに明言させるような質問をした方がいいのかな、と思ってます。」
+  function normSerial(v) {
+    return (v || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/-/g, '');
+  }
 
-「そうですね。あとは Serial Number を【CI】と紐付けてますね。CI は多分 Computer、Computer【（Hardware）】みたいな親テーブルに紐付けてますので、作成する時に。この2つのテーブルのレコードは正しいものと紐付けば、問題ないと思います。そこだけ確認が必要かなと思っています。」
+  function safe(v) {
+    return (v || '').toString().replace(/\|/g, '/');
+  }
 
-「認識はありますか？　合ってます。確認しましょう。あとは SCCM 由来のというところで、それを特定して削除する。多分最初は件数が多いのでスクリプトで処理しないといけないと思いますけど。」
+  function pickField(tableName, fields) {
+    var gr = new GlideRecord(tableName);
+    for (var i = 0; i < fields.length; i++) {
+      if (gr.isValidField(fields[i])) {
+        return fields[i];
+      }
+    }
+    return '';
+  }
 
-「そうですね。画面上で検索フィルターはできますが、削除はページごとになりますね。」
+  function getValue(gr, field) {
+    if (!field || !gr.isValidField(field)) return '';
+    return gr.getValue(field) || '';
+  }
 
-「そうですよね。画面上の操作だと1ページ分しか消せないのかなと思ったので、スクリプトで消す、というところの検討が必要かなと思ってます。Fix Script になるんですかね。」
+  function getImportSetSysIds(numbers) {
+    var sysIds = [];
+    for (var i = 0; i < numbers.length; i++) {
+      var set = new GlideRecord('sys_import_set');
+      set.addQuery('number', numbers[i]);
+      set.query();
+      if (set.next()) {
+        sysIds.push(set.getUniqueValue());
+        log('INFO|IMPORT_SET_FOUND|number=' + numbers[i] + '|sys_id=' + set.getUniqueValue());
+      } else {
+        log('WARN|IMPORT_SET_NOT_FOUND|number=' + numbers[i]);
+      }
+    }
+    return sysIds;
+  }
 
-「なるほど。なので、ちょっとそこの実装方法も考えないといけないのかなと思ってます。認識は合ってます。」
+  function loadLatestImportRows(side, importSetNumbers, createdBy) {
+    var out = {};
+    var importSetSysIds = getImportSetSysIds(importSetNumbers);
 
-「なので今日はまずサポートへの問い合わせの内容から考えるところから進めてもらえればと思います。」
+    if (importSetSysIds.length === 0) {
+      log('ERROR|NO_IMPORT_SET_SYS_IDS|side=' + side);
+      return out;
+    }
 
-「問い合わせの内容は、先ほどおっしゃっていた削除する2つのテーブルが Computer テーブルに影響がないか、ということですかね。」
+    var RESOURCE_FIELD = pickField('sn_sccm_integrate_sccm_2019_computer_id', [
+      'u_resourceid',
+      'u_resource_id',
+      'resourceid',
+      'resource_id'
+    ]);
 
-「そうで、その他のテーブルも。CI Mapping を修正すること以外に、Computer テーブルやその他の関連テーブルのデータに影響がないか、という聞き方でいいかな。」
+    var NAME_FIELD = pickField('sn_sccm_integrate_sccm_2019_computer_id', [
+      'u_name',
+      'name'
+    ]);
 
-「承知しました。その後はスクリプト（削除スクリプト）はサポートが教えてくれないと思うので、私の方で書けますので大丈夫です。多分削除の直前に、一応 Dry-run モードで削除対象のリストを出して、件数が合っているかどうか確認した上で削除する想定です。」
+    var BIOS_FIELD = pickField('sn_sccm_integrate_sccm_2019_computer_id', [
+      'u_biosserialnumber',
+      'u_bios_serial_number',
+      'biosserialnumber'
+    ]);
 
----
+    var SYS_SERIAL_FIELD = pickField('sn_sccm_integrate_sccm_2019_computer_id', [
+      'u_systemserialnumber',
+      'u_system_serial_number',
+      'systemserialnumber'
+    ]);
 
-## サポートへの問い合わせ内容（まとめ）
+    var CHASSIS_FIELD = pickField('sn_sccm_integrate_sccm_2019_computer_id', [
+      'u_chassisserialnumber',
+      'u_chassis_serial_number',
+      'chassisserialnumber'
+    ]);
 
-会議の議論から、以下の2点を明確に確認する質問をすべきと読み取れます。
+    var CONN_FIELD = pickField('sn_sccm_integrate_sccm_2019_computer_id', [
+      'u_connectionid',
+      'u_connection_id',
+      'connectionid',
+      'connection_id'
+    ]);
 
-### 問い合わせ① ：Computer テーブルの CI ID への影響確認
-> SCCM 由来の CI を削除した場合、**既存の Computer テーブルの CI ID はそのまま維持されるか**。
-> CI Source および CMDB Serial Number が変わることは認識しているが、**CI ID 自体は変わらないという理解で正しいか**、明言してほしい。
+    if (!RESOURCE_FIELD || !NAME_FIELD || !CONN_FIELD) {
+      log('ERROR|IMPORT_FIELD_NOT_FOUND|side=' + side +
+        '|resource=' + RESOURCE_FIELD +
+        '|name=' + NAME_FIELD +
+        '|connection=' + CONN_FIELD);
+      return out;
+    }
 
-### 問い合わせ②：Computer テーブル以外の関連テーブルへの影響確認
-> Serial Number は親テーブル（Computer / Computer (Hardware) 等）と紐付いている。**CI Mapping の修正以外に、Computer テーブルおよびその他の関連テーブルのデータへの影響はないか**。影響がある場合は具体的にどのテーブル・フィールドか教えてほしい。
+    var gr = new GlideRecord('sn_sccm_integrate_sccm_2019_computer_id');
+    gr.addQuery('sys_import_set', 'IN', importSetSysIds.join(','));
+    gr.addQuery('sys_created_by', createdBy);
+    gr.orderByDesc('sys_created_on');
+    gr.query();
 
----
+    while (gr.next()) {
+      var rid = getValue(gr, RESOURCE_FIELD);
+      if (!rid) continue;
 
-**背景メモ（古長さんへの説明材料として）**
-- 上記をサポートに「明言」させることが目的
-- サポート回答を根拠として、古長さんに「この方法で進めてよい」と判断してもらう流れ
-- 削除実施は Fix Script で対応予定（Dry-run で件数確認 → 本削除）
+      // 同一ResourceIDが複数あっても最新を採用
+      if (!out[rid]) {
+        out[rid] = {
+          resource_id: rid,
+          side: side,
+          created_by: createdBy,
+          import_row_sys_id: gr.getUniqueValue(),
+          import_set: gr.getDisplayValue('sys_import_set'),
+          created_on: gr.getValue('sys_created_on'),
+          connectionid: getValue(gr, CONN_FIELD),
+          name: getValue(gr, NAME_FIELD),
+          bios: getValue(gr, BIOS_FIELD),
+          system_serial: getValue(gr, SYS_SERIAL_FIELD),
+          chassis_serial: getValue(gr, CHASSIS_FIELD)
+        };
+        out[rid].serial = out[rid].bios || out[rid].system_serial || out[rid].chassis_serial || '';
+      }
+    }
+
+    log('INFO|IMPORT_ROWS_LOADED|side=' + side + '|count=' + Object.keys(out).length);
+    return out;
+  }
+
+  function parseSourceId(sourceId) {
+    // 対象: ResourceID|ConnectionID
+    // 除外: ResourceID|ConnectionID|ComputerRelatedOU / 他形式
+    var parts = (sourceId || '').split('|');
+    if (parts.length !== 2) return null;
+    if (parts[1] !== OLD_CONN) return null;
+    if (!/^\d+$/.test(parts[0])) return null;
+    return {
+      resource_id: parts[0],
+      connectionid: parts[1]
+    };
+  }
+
+  function getCiFromTable(targetSysId) {
+    var ci = new GlideRecord('cmdb_ci_computer');
+    if (!ci.get(targetSysId)) return null;
+    return ci;
+  }
+
+  function matchScore(ci, row) {
+    if (!ci || !row) return 0;
+
+    var score = 0;
+    var ciName = normName(ci.getValue('name'));
+    var ciSerial = normSerial(ci.getValue('serial_number'));
+
+    if (row.name && ciName === normName(row.name)) score += 1;
+    if (row.serial && ciSerial === normSerial(row.serial)) score += 1;
+
+    return score;
+  }
+
+  function ciInfo(ci) {
+    if (!ci) return {
+      exists: false,
+      sys_id: '',
+      name: '',
+      serial: '',
+      host_name: '',
+      updated_by: '',
+      created_by: ''
+    };
+
+    return {
+      exists: true,
+      sys_id: ci.getUniqueValue(),
+      name: ci.getValue('name'),
+      serial: ci.getValue('serial_number'),
+      host_name: ci.isValidField('host_name') ? ci.getValue('host_name') : '',
+      updated_by: ci.getValue('sys_updated_by'),
+      created_by: ci.getValue('sys_created_by')
+    };
+  }
+
+  function patternBy(targetCount, currentSide) {
+    if (targetCount === 1 && currentSide === 'broadcast') return 'PATTERN_1';
+    if (targetCount === 1 && currentSide === 'general') return 'PATTERN_2';
+    if (targetCount >= 2 && currentSide === 'general') return 'PATTERN_3';
+    if (targetCount >= 2 && currentSide === 'broadcast') return 'PATTERN_4';
+    return 'PATTERN_UNKNOWN';
+  }
+
+  // 1) Import Rows をロード
+  var itRows = loadLatestImportRows('general', IT_IMPORT_SET_NUMBERS, IT_CREATED_BY);
+  var otRows = loadLatestImportRows('broadcast', OT_IMPORT_SET_NUMBERS, OT_CREATED_BY);
+
+  // 2) sys_object_source をロード
+  var sourceByRid = {};
+  var sourceCount = 0;
+  var skippedNonIdentity = 0;
+  var skippedNonComputer = 0;
+  var resourceSet = {};
+
+  var sos = new GlideRecord('sys_object_source');
+  sos.addQuery('name', SOURCE_NAME);
+  sos.addQuery('id', 'CONTAINS', OLD_CONN);
+  sos.query();
+
+  while (sos.next()) {
+    var sourceId = sos.getValue('id');
+    var parsed = parseSourceId(sourceId);
+    if (!parsed) {
+      skippedNonIdentity++;
+      continue;
+    }
+
+    var targetTableDisplay = '';
+    if (sos.isValidField('target_table')) {
+      targetTableDisplay = sos.getDisplayValue('target_table') || sos.getValue('target_table') || '';
+      if (targetTableDisplay.indexOf('cmdb_ci_computer') < 0) {
+        skippedNonComputer++;
+        continue;
+      }
+    }
+
+    var createdBy = sos.getValue('sys_created_by');
+    var side = (createdBy === IT_CREATED_BY) ? 'general' :
+               (createdBy === OT_CREATED_BY) ? 'broadcast' : 'unknown';
+
+    if (!sourceByRid[parsed.resource_id]) {
+      sourceByRid[parsed.resource_id] = [];
+    }
+
+    sourceByRid[parsed.resource_id].push({
+      source_sys_id: sos.getUniqueValue(),
+      source_id: sourceId,
+      resource_id: parsed.resource_id,
+      connectionid: parsed.connectionid,
+      created_by: createdBy,
+      updated_by: sos.getValue('sys_updated_by'),
+      created_on: sos.getValue('sys_created_on'),
+      updated_on: sos.getValue('sys_updated_on'),
+      target_sys_id: sos.getValue('target_sys_id'),
+      target_table: targetTableDisplay,
+      side: side
+    });
+
+    resourceSet[parsed.resource_id] = true;
+    sourceCount++;
+  }
+
+  log('INFO|SOURCE_ROWS_LOADED|count=' + sourceCount +
+    '|resources=' + Object.keys(resourceSet).length +
+    '|skipped_non_identity=' + skippedNonIdentity +
+    '|skipped_non_computer=' + skippedNonComputer);
+
+  // 3) ResourceIDごとに判定
+  var resultCount = 0;
+  var mismatchCount = 0;
+  var ambiguousCount = 0;
+  var patternCounts = {
+    PATTERN_1: 0,
+    PATTERN_2: 0,
+    PATTERN_3: 0,
+    PATTERN_4: 0,
+    PATTERN_UNKNOWN: 0
+  };
+
+  for (var rid in sourceByRid) {
+    var sources = sourceByRid[rid];
+
+    // 最新の source_object_source を current とする
+    sources.sort(function (a, b) {
+      return (a.updated_on || a.created_on || '') < (b.updated_on || b.created_on || '') ? 1 : -1;
+    });
+
+    var current = sources[0];
+
+    var it = itRows[rid] || null;
+    var ot = otRows[rid] || null;
+
+    // general / broadcast が両方ないと比較しにくい
+    if (!it || !ot) {
+      continue;
+    }
+
+    // MCM同士の差分が無いものは除外（必要なら false に変更）
+    var sideNameDiff = normName(it.name) !== normName(ot.name);
+    var sideSerialDiff = normSerial(it.serial) !== normSerial(ot.serial);
+    if (ONLY_MISMATCH && !sideNameDiff && !sideSerialDiff) {
+      continue;
+    }
+
+    var targetCi = getCiFromTable(current.target_sys_id);
+    if (!targetCi) {
+      ambiguousCount++;
+      log('RESULT|TARGET_NOT_FOUND' +
+        '|resource_id=' + rid +
+        '|source_sys_id=' + current.source_sys_id +
+        '|source_id=' + current.source_id +
+        '|current_target_sys_id=' + current.target_sys_id +
+        '|target_table=' + current.target_table +
+        '|it_name=' + safe(it.name) +
+        '|it_serial=' + safe(it.serial) +
+        '|ot_name=' + safe(ot.name) +
+        '|ot_serial=' + safe(ot.serial));
+      continue;
+    }
+
+    var targetInfo = ciInfo(targetCi);
+
+    // current target がどちら側の値に近いか判定
+    var scoreGeneral = matchScore(targetCi, it);
+    var scoreBroadcast = matchScore(targetCi, ot);
+
+    var currentSide = 'unknown';
+    if (scoreGeneral > scoreBroadcast) {
+      currentSide = 'general';
+    } else if (scoreBroadcast > scoreGeneral) {
+      currentSide = 'broadcast';
+    } else if (scoreGeneral === 2 && scoreBroadcast === 2) {
+      currentSide = 'both';
+    }
+
+    var distinctTargetCount = 0;
+    var targetSet = {};
+    for (var i = 0; i < sources.length; i++) {
+      targetSet[sources[i].target_sys_id] = true;
+    }
+    for (var k in targetSet) {
+      distinctTargetCount++;
+    }
+
+    var pattern = patternBy(distinctTargetCount, currentSide);
+    patternCounts[pattern] = (patternCounts[pattern] || 0) + 1;
+
+    var mismatchType = [];
+    if (normName(targetInfo.name) !== normName(it.name)) mismatchType.push('IT_NAME_DIFF');
+    if (normSerial(targetInfo.serial) !== normSerial(it.serial)) mismatchType.push('IT_SERIAL_DIFF');
+    if (normName(targetInfo.name) !== normName(ot.name)) mismatchType.push('OT_NAME_DIFF');
+    if (normSerial(targetInfo.serial) !== normSerial(ot.serial)) mismatchType.push('OT_SERIAL_DIFF');
+
+    // 問題候補だけ出す
+    var isProblem = (mismatchType.length > 0);
+
+    if (ONLY_MISMATCH && !isProblem) {
+      continue;
+    }
+
+    resultCount++;
+
+    log([
+      'RESULT|' + (isProblem ? 'MISMATCH' : 'MATCH'),
+      'pattern=' + pattern,
+      'resource_id=' + rid,
+      'current_side=' + currentSide,
+      'distinct_target_count=' + distinctTargetCount,
+      'it_name=' + safe(it.name),
+      'it_serial=' + safe(it.serial),
+      'ot_name=' + safe(ot.name),
+      'ot_serial=' + safe(ot.serial),
+      'target_name=' + safe(targetInfo.name),
+      'target_serial=' + safe(targetInfo.serial),
+      'target_sys_id=' + current.target_sys_id,
+      'target_table=' + current.target_table,
+      'source_sys_id=' + current.source_sys_id,
+      'source_created_by=' + current.created_by,
+      'source_updated_by=' + current.updated_by,
+      'source_id=' + safe(current.source_id),
+      'mismatch_type=' + (mismatchType.length ? mismatchType.join(',') : 'NONE'),
+      'source_row_count=' + sources.length,
+      'it_source_row_sys_id=' + (it ? it.import_row_sys_id : ''),
+      'ot_source_row_sys_id=' + (ot ? ot.import_row_sys_id : '')
+    ].join('|'));
+  }
+
+  log('SUMMARY' +
+    '|result_count=' + resultCount +
+    '|mismatch_count=' + mismatchCount +
+    '|ambiguous_count=' + ambiguousCount +
+    '|pattern1=' + patternCounts.PATTERN_1 +
+    '|pattern2=' + patternCounts.PATTERN_2 +
+    '|pattern3=' + patternCounts.PATTERN_3 +
+    '|pattern4=' + patternCounts.PATTERN_4 +
+    '|pattern_unknown=' + patternCounts.PATTERN_UNKNOWN +
+    '|it_resource_count=' + Object.keys(itRows).length +
+    '|ot_resource_count=' + Object.keys(otRows).length +
+    '|source_resource_count=' + Object.keys(sourceByRid).length);
+})();
