@@ -1,3 +1,46 @@
+```
+Sub SaveMailAsTxt()
+    Const OLTXT = 0
+    Dim oMail As Outlook.MailItem
+    Dim sPath As String
+    Dim sName As String
+    Dim dtDate As Date
+
+    Set oMail = Application.ActiveExplorer.Selection.Item(1)
+    sName = oMail.Subject
+    ReplaceCharsForFileName sName, "_"
+
+    dtDate = oMail.ReceivedTime
+    sName = Format(dtDate, "yyyymmdd-hhnnss") & "-" & sName & ".txt"
+
+    sPath = "C:\Users\whz\Documents\" ' 改成你想保存的文件夹
+    oMail.SaveAs sPath & sName, OLTXT
+End Sub
+
+Private Sub ReplaceCharsForFileName(sName As String, sChr As String)
+    sName = Replace(sName, "/", sChr)
+    sName = Replace(sName, "\", sChr)
+    sName = Replace(sName, ":", sChr)
+    sName = Replace(sName, "?", sChr)
+    sName = Replace(sName, Chr(34), sChr)
+    sName = Replace(sName, "<", sChr)
+    sName = Replace(sName, ">", sChr)
+    sName = Replace(sName, "|", sChr)
+End Sub
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
 https://docs.autohotkey.com/download/2.0/
 
 当然可以。AutoHotkey（AHK）非常适合在 Windows 11 上做**快捷键、自定义键盘、自动输入、启动程序、窗口操作以及简单的桌面自动化**。
