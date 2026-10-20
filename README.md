@@ -1,4 +1,1 @@
-```
-西桑邮件中希望今后的 JP1 发布作业统一使用 release 登记功能，以便提前安排作业并确认结果。
-我这边认为没有问题，今后可以统一使用 JP1 的 release 登记功能进行操作。
-```
+https://itpfdoc.hitachi.co.jp/manuals/3021/30213D2520e/AJSJ0210.HTM#a0015f20
