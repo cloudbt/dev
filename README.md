@@ -1,3 +1,10 @@
+区别主要在于 job 数量及当天最后一次执行时间：
+1. 6/26 的 INC51130 仅咨询 Release，实际作业是 7/7 的 INC51218。当时只有 2 个 job，最后一次执行均在营业时间外，因此使用了 Release 功能。
+2. 上周五共处理 6 个 job：
+   - GD02、GD06：最后一次执行在营业时间外，使用 Release。
+   - GN04～GN07：最后一次执行在营业时间内，按工藤告知的方法，先删除旧 job，再创建新 job。
+
+
 https://itpfdoc.hitachi.co.jp/manuals/3021/30213D2520e/AJSJ0210.HTM#a0015f20
 
 
